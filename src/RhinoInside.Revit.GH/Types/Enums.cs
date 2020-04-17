@@ -451,4 +451,26 @@ namespace RhinoInside.Revit.GH.Types
   public class FloorFunction : GH_Enum<DBX.FloorFunction>
   {
   }
+  
+
+  [
+  ComponentGuid("734EBEE0-9BF1-43F0-8654-B4249BC0E83B"),
+  Name("View System Family"),
+  Description("Represents builtin view system families"),
+  ]
+  public class ViewSystemFamily : GH_Enum<DB.ViewFamily>
+  {
+    public ViewSystemFamily() : base() { }
+    public ViewSystemFamily(DB.ViewFamily value) : base(value) { }
+
+    public override string Text
+    {
+      get
+      {
+        if (Enum.IsDefined(typeof(DB.ViewFamily), this.Value))
+          return Value.ToString().Humanify();
+        return base.Text;
+      }
+    }
+  }
 }
