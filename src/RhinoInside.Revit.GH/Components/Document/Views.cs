@@ -57,6 +57,9 @@ namespace RhinoInside.Revit.GH.Components
       string name = null;
       DA.GetData("Name", ref name);
 
+      string titleOnSheet = null;
+      DA.GetData("Title On Sheet", ref titleOnSheet);
+
       var Template = default(DB.View);
       var _Template_ = Params.IndexOfInputParam("Template");
       bool nofilterTemplate = (!DA.GetData(_Template_, ref Template) && Params.Input[_Template_].DataType == GH_ParamData.@void);
@@ -88,6 +91,9 @@ namespace RhinoInside.Revit.GH.Components
 
         if (TryGetFilterStringParam(DB.BuiltInParameter.VIEW_NAME, ref name, out var viewNameFilter))
           viewsCollector = viewsCollector.WherePasses(viewNameFilter);
+
+        if (TryGetFilterStringParam(DB.BuiltInParameter.VIEW_DESCRIPTION, ref titleOnSheet, out var viewDescFilter))
+          viewsCollector = viewsCollector.WherePasses(viewDescFilter);
 
         if (!nofilterTemplate && TryGetFilterElementIdParam(DB.BuiltInParameter.VIEW_TEMPLATE, Template?.Id ?? DB.ElementId.InvalidElementId, out var templateFilter))
           viewsCollector = viewsCollector.WherePasses(templateFilter);
