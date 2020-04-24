@@ -1,8 +1,11 @@
 using System;
 using System.Linq;
+using System.Collections.Generic;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Parameters;
 using DB = Autodesk.Revit.DB;
+using DBX = RhinoInside.Revit.External.DB;
+
 
 namespace RhinoInside.Revit.GH.Components
 {
@@ -45,75 +48,117 @@ namespace RhinoInside.Revit.GH.Components
 
     protected override void TrySolveInstance(IGH_DataAccess DA, DB.Document doc)
     {
-      var viewDiscipline = default(DB.ViewDiscipline);
-      var _Discipline_ = Params.IndexOfInputParam("Discipline");
-      bool nofilterDiscipline = (!DA.GetData(_Discipline_, ref viewDiscipline) && Params.Input[_Discipline_].Sources.Count == 0);
+      // grab input data =============================================================================================
+      // we do not want to filter by parameter default values so in most cases we need to check whether the parameter
+      // actually contains input data or is simply using the default value
 
-      //var viewType = DB.ViewType.Undefined;
-      //DA.GetData("Type", ref viewType);
+      // check if filtering by Discipline is requested
+      var viewDiscipline = default(DBX.ViewDiscipline);
+      bool hasDisciplineFilter = DA.GetData("Discipline", ref viewDiscipline);
+
+      // check if filtering by view system family is requested
       DB.ViewFamily viewSystemFamily = default;
-      DA.GetData("View System Family", ref viewSystemFamily);
+      bool hasViewSystemFamily = DA.GetData("View System Family", ref viewSystemFamily);
 
-      string name = null;
-      DA.GetData("Name", ref name);
+      // get the strings to filter the results
+      string name = null, titleOnSheet = null;
+      // skips title if name is provided
+      bool hasNameOrTitleFilter = DA.GetData("Name", ref name) || DA.GetData("Title On Sheet", ref titleOnSheet);
 
-      string titleOnSheet = null;
-      DA.GetData("Title On Sheet", ref titleOnSheet);
+      // check if filtering by Template is requested
+      var template = default(DB.View);
+      bool hasTemplateFilter = DA.GetData("Template", ref template);
 
-      var Template = default(DB.View);
-      var _Template_ = Params.IndexOfInputParam("Template");
-      bool nofilterTemplate = (!DA.GetData(_Template_, ref Template) && Params.Input[_Template_].DataType == GH_ParamData.@void);
-
+      // check if filtering by IsTemplate is requested
       bool IsTemplate = false;
       var _IsTemplate_ = Params.IndexOfInputParam("Is Template");
       bool nofilterIsTemplate = (!DA.GetData(_IsTemplate_, ref IsTemplate) && Params.Input[_IsTemplate_].DataType == GH_ParamData.@void);
 
+      // check if filtering by IsAssembly is requested
       bool IsAssembly = false;
       var _IsAssembly_ = Params.IndexOfInputParam("Is Assembly");
       bool nofilterIsAssembly = (!DA.GetData(_IsAssembly_, ref IsAssembly) && Params.Input[_IsAssembly_].DataType == GH_ParamData.@void);
 
+      // check if filtering by IsPrintable is requested
       bool IsPrintable = false;
       var _IsPrintable_ = Params.IndexOfInputParam("Is Printable");
       bool nofilterIsPrintable = (!DA.GetData(_IsPrintable_, ref IsPrintable) && Params.Input[_IsPrintable_].DataType == GH_ParamData.@void);
 
+      // get custom filters if provided
       DB.ElementFilter filter = null;
-      DA.GetData("Filter", ref filter);
+      bool hasCustomFilter = DA.GetData("Filter", ref filter);
 
+      // construct the filter and start filtering ====================================================================
       using (var collector = new DB.FilteredElementCollector(doc))
       {
+        // grab all views
         var viewsCollector = collector.WherePasses(ElementFilter);
 
-        if (filter is object)
+        // filter by custom filter
+        if (hasCustomFilter)
           viewsCollector = viewsCollector.WherePasses(filter);
 
-        if (!nofilterDiscipline && TryGetFilterIntegerParam(DB.BuiltInParameter.VIEW_DISCIPLINE, (int) viewDiscipline, out var viewDisciplineFilter))
-          viewsCollector = viewsCollector.WherePasses(viewDisciplineFilter);
+        // filter by discipline
+        if (hasDisciplineFilter)
+        {
+          if (viewDiscipline == DBX.ViewDiscipline.NotSet)
+          {
+            string emptyValue = string.Empty;
+            TryGetFilterStringParam(DB.BuiltInParameter.VIEW_DISCIPLINE, ref emptyValue, out var viewDisciplineFilter);
+            viewsCollector = viewsCollector.WherePasses(viewDisciplineFilter);
+          }
+          else
+          {
+            TryGetFilterIntegerParam(DB.BuiltInParameter.VIEW_DISCIPLINE, (int) viewDiscipline, out var viewDisciplineFilter);
+            viewsCollector = viewsCollector.WherePasses(viewDisciplineFilter);
+          }
+        }
 
-        if (TryGetFilterStringParam(DB.BuiltInParameter.VIEW_NAME, ref name, out var viewNameFilter))
-          viewsCollector = viewsCollector.WherePasses(viewNameFilter);
+        // filter by name or title
+        if (hasNameOrTitleFilter)
+        {
+          // getting DB.BuiltInParameter.VIEW_NAME instead of view.Name for consistency
+          if (TryGetFilterStringParam(DB.BuiltInParameter.VIEW_NAME, ref name, out var viewNameFilter))
+            viewsCollector = viewsCollector.WherePasses(viewNameFilter);
 
-        if (TryGetFilterStringParam(DB.BuiltInParameter.VIEW_DESCRIPTION, ref titleOnSheet, out var viewDescFilter))
-          viewsCollector = viewsCollector.WherePasses(viewDescFilter);
+          // DB.BuiltInParameter.VIEW_DESCRIPTION is "Title On Sheet" for views
+          if (TryGetFilterStringParam(DB.BuiltInParameter.VIEW_DESCRIPTION, ref titleOnSheet, out var viewDescFilter))
+            viewsCollector = viewsCollector.WherePasses(viewDescFilter);
+        }
 
-        if (!nofilterTemplate && TryGetFilterElementIdParam(DB.BuiltInParameter.VIEW_TEMPLATE, Template?.Id ?? DB.ElementId.InvalidElementId, out var templateFilter))
+        // filter by template view
+        if (hasTemplateFilter && TryGetFilterElementIdParam(DB.BuiltInParameter.VIEW_TEMPLATE, template?.Id ?? DB.ElementId.InvalidElementId, out var templateFilter))
           viewsCollector = viewsCollector.WherePasses(templateFilter);
 
+        // the rest of checks need the actual view object
         var views = collector.Cast<DB.View>();
 
-        if (!nofilterIsTemplate)
+        // filter by view system family
+        if (hasViewSystemFamily)
+          views = views.Where(x => ((DB.ViewFamilyType) x.Document.GetElement(x.GetTypeId()))?.ViewFamily == viewSystemFamily);
+
+        // filter by IsTemplate
+        if (hasIsTemplateFilter)
           views = views.Where((x) => x.IsTemplate == IsTemplate);
 
-        if (!nofilterIsAssembly)
+        // filter by IsAssembly
+        if (hasIsAssemblyFilter)
           views = views.Where((x) => x.IsAssemblyView == IsAssembly);
 
-        if (!nofilterIsPrintable)
+        // filter by IsPrintable
+        if (hasIsPrintableFilter)
           views = views.Where((x) => x.CanBePrinted == IsPrintable);
 
-        if (viewSystemFamily != DB.ViewFamily.Invalid)
-          views = views.Where(x=> ((DB.ViewFamilyType) x.Document.GetElement(x.GetTypeId())).ViewFamily == viewSystemFamily);
-
-        if (name is object)
-          views = views.Where(x => x.Name.IsSymbolNameLike(name));
+        // remove anything that is a builtin type
+        views = views.Where(x => x.ViewType != DB.ViewType.Internal
+                              && x.ViewType != DB.ViewType.Undefined
+                              // project and system browser windows are also DB.View
+                              && x.ViewType != DB.ViewType.ProjectBrowser
+                              && x.ViewType != DB.ViewType.SystemBrowser)
+                     // skip all the schedules that are internal keynote schdules, or internal titleblock revision schedules
+                     // titleblock revision schedules are defined inside the titleblock families. But revit creates internal rev schedules
+                     // to mirror the titleblock revision schedules and to keep the revision data updated efficiently
+                     .Where(x => x.ViewType == DB.ViewType.Schedule ? !((DB.ViewSchedule)x).IsInternalKeynoteSchedule && !((DB.ViewSchedule) x).IsTitleblockRevisionSchedule : true);
 
         DA.SetDataList("Views", views);
       }
