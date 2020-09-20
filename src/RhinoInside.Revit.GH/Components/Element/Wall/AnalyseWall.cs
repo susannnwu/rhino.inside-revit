@@ -2,6 +2,7 @@ using System;
 using Grasshopper.Kernel;
 
 using RhinoInside.Revit.External.DB.Extensions;
+using RhinoInside.Revit.Convert.Geometry;
 
 using DB = Autodesk.Revit.DB;
 
@@ -10,7 +11,7 @@ namespace RhinoInside.Revit.GH.Components
   public class AnalyzeWall : AnalysisComponent
   {
     public override Guid ComponentGuid => new Guid("1169CEB6-381C-4353-8ACE-874938755694");
-    public override GH_Exposure Exposure => GH_Exposure.primary;
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
     protected override string IconTag => "AW";
 
     public AnalyzeWall() : base(
@@ -18,15 +19,14 @@ namespace RhinoInside.Revit.GH.Components
       nickname: "A-W",
       description: "Analyze given Wall element",
       category: "Revit",
-      subCategory: "Analyze"
+      subCategory: "Wall"
     )
-    {
-    }
+    { }
 
     protected override void RegisterInputParams(GH_InputParamManager manager)
     {
       manager.AddParameter(
-        param: new Parameters.Element(),
+        param: new Parameters.Wall(),
         name: "Wall",
         nickname: "W",
         description: "Wall element",
@@ -52,7 +52,7 @@ namespace RhinoInside.Revit.GH.Components
         );
 
       manager.AddParameter(
-        param: new Parameters.Element(),
+        param: new Parameters.Wall(),
         name: "Parent Stacked Wall",
         nickname: "PSW",
         description: "Parent Stacked Wall instance if given wall is a member of a Stacked Wall",
@@ -188,7 +188,7 @@ namespace RhinoInside.Revit.GH.Components
 
       PipeHostParameter(DA, wallInstance, DB.BuiltInParameter.WALL_USER_HEIGHT_PARAM, "Height");
       PipeHostParameter(DA, wallInstance, DB.BuiltInParameter.CURVE_ELEM_LENGTH, "Length");
-      DA.SetData("Width", wallInstance.GetWidth());
+      DA.SetData("Width", UnitConverter.InRhinoUnits(wallInstance.GetWidth(), DB.ParameterType.Length));
 #if REVIT_2021
      PipeHostParameter(DA, wallInstance, DB.BuiltInParameter.WALL_SINGLE_SLANT_ANGLE_FROM_VERTICAL, "Slant Angle");
 #else
@@ -203,7 +203,7 @@ namespace RhinoInside.Revit.GH.Components
       PipeHostParameter(DA, wallInstance, DB.BuiltInParameter.WALL_STRUCTURAL_SIGNIFICANT, "Structural");
       PipeHostParameter<Types.StructuralWallUsage>(DA, wallInstance, DB.BuiltInParameter.WALL_STRUCTURAL_USAGE_PARAM, "Structural Usage");
 
-      DA.SetData("Orientation", wallInstance.GetOrientationVector());
+      DA.SetData("Orientation", UnitConverter.InRhinoUnits(wallInstance.GetOrientationVector()));
     }
   }
 }

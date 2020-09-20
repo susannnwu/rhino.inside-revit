@@ -6,6 +6,71 @@ using Rhino.Geometry;
 
 namespace RhinoInside.Revit.Geometry.Extensions
 {
+  public static class Vector3dExtension
+  {
+    /// <summary>
+    /// Arbitrary Axis Algorithm
+    /// <para>Given a vector to be used as the Z axis of a coordinate system, this algorithm generates a corresponding X axis for the coordinate system.</para>
+    /// <para>The Y axis follows by application of the right-hand rule.</para>
+    /// </summary>
+    /// <param name="value"></param>
+    /// <param name="tolerance"></param>
+    /// <returns>X axis of the corresponding coordinate system</returns>
+    public static Vector3d PerpVector(this Vector3d value, double tolerance = 1e-9)
+    {
+      var length = value.Length;
+      if (length < tolerance)
+        return Vector3d.Zero;
+
+      var normal = value / length;
+
+      if (Vector3d.Zero.EpsilonEquals(new Vector3d(normal.X, normal.Y, 0.0), tolerance))
+        return new Vector3d(value.Z, 0.0, -value.X);
+      else
+        return new Vector3d(-value.Y, value.X, 0.0);
+    }
+  }
+
+  public static class BoundingBoxExtension
+  {
+    /// <summary>
+    /// Aligned bounding box solver. Gets the world axis aligned bounding box for the transformed <paramref name="value"/>.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <param name="xform">Transformation to apply to <paramref name="value"/> prior to the BoundingBox computation. The <paramref name="value"/> itself is not modified</param>
+    /// <returns>The accurate bounding box of the transformed geometry in world coordinates or <see cref="BoundingBox.Unset"/> if not bounding box could be found</returns>
+    public static BoundingBox GetBoundingBox(this BoundingBox value, Transform xform)
+    {
+      if (!value.IsValid)
+        return BoundingBox.Unset;
+
+      if (xform.IsIdentity)
+        return value;
+
+      return new BoundingBox(value.GetCorners(), xform);
+    }
+  }
+
+  public static class BoxExtension
+  {
+    /// <summary>
+    /// Aligned bounding box solver. Gets the world axis aligned bounding box for the transformed <paramref name="value"/>.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <param name="xform">Transformation to apply to <paramref name="value"/> prior to the BoundingBox computation. The <paramref name="value"/> itself is not modified</param>
+    /// <returns>The accurate bounding box of the transformed geometry in world coordinates or <see cref="BoundingBox.Unset"/> if not bounding box could be found</returns>
+    public static BoundingBox GetBoundingBox(this Box value, Transform xform)
+    {
+      if (!value.IsValid)
+        return BoundingBox.Unset;
+
+      if (xform.IsIdentity)
+        return value.BoundingBox;
+
+      return new BoundingBox(value.GetCorners(), xform);
+    }
+  }
+
   public static class ExtrusionExtension
   {
     public static bool TryGetExtrusion(this Surface surface, out Extrusion extrusion)
@@ -96,7 +161,9 @@ namespace RhinoInside.Revit.Geometry.Extensions
       public PlanarBrepFace(BrepFace f)
       {
         Face = f;
-        Face.TryGetPlane(out Plane);
+        if (!Face.TryGetPlane(out Plane, RhinoMath.ZeroTolerance))
+          Plane = Plane.Unset;
+
         loop = null;
         area = double.NaN;
         centroid = new Point3d(double.NaN, double.NaN, double.NaN);
@@ -110,15 +177,15 @@ namespace RhinoInside.Revit.Geometry.Extensions
 
       public NurbsCurve Loop
       {
-        get { if (loop is null) loop = Face.OuterLoop.To3dCurve().ToNurbsCurve(); return loop; }
+        get { if (loop is null) loop = Curve.ProjectToPlane(Face.OuterLoop.To3dCurve(), Plane).ToNurbsCurve(); return loop; }
       }
       public Point3d Centroid
       {
-        get { if (!centroid.IsValid) using (var mp = AreaMassProperties.Compute(Loop)) { area = mp.Area; centroid = mp.Centroid; } return centroid; }
+        get { if (!centroid.IsValid) using (var mp = AreaMassProperties.Compute(Loop, RhinoMath.ZeroTolerance)) if(mp is object) { area = mp.Area; centroid = mp.Centroid; } return centroid; }
       }
       public double LoopArea
       {
-        get { if (double.IsNaN(area)) using (var mp = AreaMassProperties.Compute(Loop)) { area = mp.Area; centroid = mp.Centroid; } return area; }
+        get { if (double.IsNaN(area)) using (var mp = AreaMassProperties.Compute(Loop, RhinoMath.ZeroTolerance)) if(mp is object) { area = mp.Area; centroid = mp.Centroid; } return area; }
       }
 
       public bool ProjectionDegenartesToCurve(Surface surface)
@@ -215,7 +282,7 @@ namespace RhinoInside.Revit.Geometry.Extensions
           if (planeF.Normal.IsParallelTo(planarFaces[g].Plane.Normal, RhinoMath.DefaultAngleTolerance / 100.0) == 0)
             continue;
 
-          // Here f, ang are perfect candidates to test adjacent faces for perpendicularity to them,
+          // Here f, and g are perfect candidates to test adjacent faces for perpendicularity to them,
           // but we may try to quick reject some candidates if it's obvious that doesn't match
 
           // A "perfect" curve overlap match may be a test but is too much in this ocasion
@@ -284,7 +351,7 @@ namespace RhinoInside.Revit.Geometry.Extensions
                         +startFace.Plane.DistanceTo(endFace.Plane.Origin);
 
         extrusion = Extrusion.Create(profile, height, true);
-        return true;
+        return extrusion is object;
       }
 
       return false;

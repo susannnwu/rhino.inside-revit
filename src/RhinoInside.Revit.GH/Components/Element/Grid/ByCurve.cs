@@ -14,15 +14,17 @@ namespace RhinoInside.Revit.GH.Components
 
     public GridByCurve() : base
     (
-      "Add Grid", "Grid",
-      "Given its Axis, it adds a Grid element to the active Revit document",
-      "Revit", "Datum"
+      name: "Add Grid",
+      nickname: "Grid",
+      description: "Given its Axis, it adds a Grid element to the active Revit document",
+      category: "Revit",
+      subCategory: "Model"
     )
     { }
 
     protected override void RegisterOutputParams(GH_OutputParamManager manager)
     {
-      manager.AddParameter(new Parameters.Element(), "Grid", "G", "New Grid", GH_ParamAccess.item);
+      manager.AddParameter(new Parameters.Grid(), "Grid", "G", "New Grid", GH_ParamAccess.item);
     }
 
     void ReconstructGridByCurve

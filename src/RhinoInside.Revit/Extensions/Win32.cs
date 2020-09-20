@@ -27,6 +27,8 @@ namespace Microsoft.Win32.SafeHandles
 
     public static LibraryHandle Zero = new LibraryHandle();
 
+    public static LibraryHandle GetLoadedModule(string moduleName) => Kernel32.GetModuleHandle(moduleName);
+
     public string ModuleFileName
     {
       get
@@ -245,12 +247,15 @@ namespace Microsoft.Win32.SafeHandles
 
 namespace Microsoft.Win32.SafeHandles.InteropServices
 {
+  using LONG      = Int32;
   using DWORD     = UInt32;
   using UINT      = UInt32;
 
+  using HMODULE   = LibraryHandle;
   using HINSTANCE = LibraryHandle;
   using HWND      = WindowHandle;
   using HHOOK     = SafeHookHandle;
+  using HMENU     = IntPtr;
 
   [SuppressUnmanagedCodeSecurity]
   internal static class Kernel32
@@ -276,6 +281,9 @@ namespace Microsoft.Win32.SafeHandles.InteropServices
 
     [DllImport(KERNEL32, SetLastError = true)]
     public static extern DWORD GetModuleFileName(HINSTANCE hInstance, StringBuilder lpFilename, DWORD nSize);
+
+    [DllImport(KERNEL32, SetLastError = true)]
+    public static extern HMODULE GetModuleHandle(string lpModuleName);
   }
 
   [SuppressUnmanagedCodeSecurity]
@@ -284,6 +292,23 @@ namespace Microsoft.Win32.SafeHandles.InteropServices
     internal const string USER32 = "USER32";
 
     #region Windows API
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct CREATESTRUCT
+    {
+      public IntPtr lpCreateParams;
+      public IntPtr hInstance;
+      public IntPtr hMenu;
+      public IntPtr hwndParent;
+      public int cy;
+      public int cx;
+      public int y;
+      public int x;
+      public LONG style;
+      public IntPtr lpszName;
+      public IntPtr lpszClass;
+      public DWORD dwExStyle;
+    }
+
     [DllImport(USER32, SetLastError = true)]
     public static extern bool IsWindow(HWND hWnd);
 
@@ -379,6 +404,13 @@ namespace Microsoft.Win32.SafeHandles.InteropServices
       WH_CALLWNDPROCRET = 12,
       WH_KEYBOARD_LL = 13,
       WH_MOUSE_LL = 14
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    public struct CBT_CREATEWND
+    {
+      public IntPtr lpcs;
+      public IntPtr hwndInsertAfter;
     }
 
     public delegate int HookProc(int nCode, IntPtr wParam, IntPtr lParam);

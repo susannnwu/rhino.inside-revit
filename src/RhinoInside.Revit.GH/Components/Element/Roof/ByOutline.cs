@@ -10,7 +10,7 @@ namespace RhinoInside.Revit.GH.Components
   public class RoofByOutline : ReconstructElementComponent
   {
     public override Guid ComponentGuid => new Guid("198E152B-6636-4D90-9443-AE77B8B1475E");
-    public override GH_Exposure Exposure => GH_Exposure.primary;
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
 
     public RoofByOutline() : base
     (
@@ -22,7 +22,7 @@ namespace RhinoInside.Revit.GH.Components
 
     protected override void RegisterOutputParams(GH_OutputParamManager manager)
     {
-      manager.AddParameter(new Parameters.HostObject(), "Roof", "R", "New Roof", GH_ParamAccess.item);
+      manager.AddParameter(new Parameters.Roof(), "Roof", "R", "New Roof", GH_ParamAccess.item);
     }
 
     void ReconstructRoofByOutline

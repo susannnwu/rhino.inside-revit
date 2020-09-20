@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.IO;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Events;
 using Grasshopper;
 using Grasshopper.Kernel;
+using Microsoft.Win32.SafeHandles;
 using Rhino.PlugIns;
 using RhinoInside.Revit.Convert.Geometry;
 using RhinoInside.Revit.GH.Bake;
@@ -24,10 +24,6 @@ namespace RhinoInside.Revit.UI
     {
       if (!PlugIn.LoadPlugIn(PluginId, true, true))
         throw new Exception("Failed to load Grasshopper");
-
-      GH.Guest.Script.LoadEditor();
-      if(!GH.Guest.Script.IsEditorLoaded())
-        throw new Exception("Failed to startup Grasshopper");
     }
 
     /// <summary>
@@ -61,20 +57,81 @@ namespace RhinoInside.Revit.UI
 
     public override Result Execute(ExternalCommandData data, ref string message, DB.ElementSet elements)
     {
-      // check to see if any document path is provided in journal data
-      // if yes, open the document
-      string filename = null;
-      if (data.JournalData.TryGetValue("Open", out filename) && File.Exists(filename))
-        GH.Guest.ShowAndOpenDocumentAsync(filename);
-      // otherwise, just open the GH window
-      else
-        GH.Guest.ShowAsync();
-      // whatever happens say success so Revit does not prompt errors
+      // Check to see if any document path is provided in journal data
+      // if yes, open the document.
+      if (data.JournalData.TryGetValue("Open", out var filename))
+      {
+        if (!GH.Guest.OpenDocument(filename))
+          return Result.Failed;
+       }
+
+      GH.Guest.ShowEditorAsync();
+
       return Result.Succeeded;
     }
   }
 
   #region Solver
+  [Transaction(TransactionMode.Manual), Regeneration(RegenerationOption.Manual)]
+  class CommandGrasshopperSolver : GrasshopperCommand
+  {
+    static PushButton Button;
+
+    protected new class Availability : GrasshopperCommand.Availability
+    {
+      public override bool IsCommandAvailable(UIApplication _, DB.CategorySet selectedCategories)
+      {
+        RefreshUI();
+        return base.IsCommandAvailable(_, selectedCategories);
+      }
+    }
+
+    public static void RefreshUI()
+    {
+      if (GH_Document.EnableSolutions)
+      {
+        Button.ToolTip = "Disable the Grasshopper solver";
+        Button.Image = ImageBuilder.LoadBitmapImage("Resources.Ribbon.Grasshopper.SolverOn.png", true);
+        Button.LargeImage = ImageBuilder.LoadBitmapImage("Resources.Ribbon.Grasshopper.SolverOn.png");
+      }
+      else
+      {
+        Button.ToolTip = "Enable the Grasshopper solver";
+        Button.Image = ImageBuilder.LoadBitmapImage("Resources.Ribbon.Grasshopper.SolverOff.png", true);
+        Button.LargeImage = ImageBuilder.LoadBitmapImage("Resources.Ribbon.Grasshopper.SolverOff.png");
+      }
+    }
+
+    public static void CreateUI(RibbonPanel ribbonPanel)
+    {
+      var buttonData = NewPushButtonData<CommandGrasshopperSolver, Availability>("Solver");
+      Button = ribbonPanel.AddItem(buttonData) as PushButton;
+      if (Button is object)
+      {
+        Button.Visible = PlugIn.PlugInExists(PluginId, out bool _, out bool _);
+        RefreshUI();
+      }
+    }
+
+    public override Result Execute(ExternalCommandData data, ref string message, DB.ElementSet elements)
+    {
+      GH_Document.EnableSolutions = !GH_Document.EnableSolutions;
+      RefreshUI();
+
+      if (GH_Document.EnableSolutions)
+      {
+        if (Instances.ActiveCanvas?.Document is GH_Document definition)
+          definition.NewSolution(false);
+      }
+      else
+      {
+        Revit.RefreshActiveView();
+      }
+
+      return Result.Succeeded;
+    }
+  }
+
   [Transaction(TransactionMode.Manual), Regeneration(RegenerationOption.Manual)]
   class CommandGrasshopperRecompute : GrasshopperCommand
   {
@@ -102,27 +159,22 @@ namespace RhinoInside.Revit.UI
     {
       if (Instances.ActiveCanvas?.Document is GH_Document definition)
       {
-        using (var modal = new Rhinoceros.ModalScope())
+        if(GH_Document.EnableSolutions) definition.NewSolution(true);
+        else
         {
-          if(GH_Document.EnableSolutions) definition.NewSolution(true);
-          else
-          {
-            GH_Document.EnableSolutions = true;
-            try { definition.NewSolution(false); }
-            finally { GH_Document.EnableSolutions = false; }
-          }
-
-          do
-          {
-            var result = modal.Run(false, false);
-            if (result == Result.Failed)
-              return result;
-
-          } while (definition.ScheduleDelay >= GH_Document.ScheduleRecursive);
-
-          if (definition.SolutionState == GH_ProcessStep.PostProcess)
-            return Result.Succeeded;
+          GH_Document.EnableSolutions = true;
+          try { definition.NewSolution(false); }
+          finally { GH_Document.EnableSolutions = false; }
         }
+
+        // If there are no scheduled solutions return control back to Revit now
+        if (definition.ScheduleDelay > GH_Document.ScheduleRecursive)
+          WindowHandle.ActiveWindow = Rhinoceros.MainWindow;
+
+        if (definition.SolutionState == GH_ProcessStep.PostProcess)
+          return Result.Succeeded;
+        else
+          return Result.Cancelled;
       }
 
       return Result.Failed;
@@ -141,15 +193,18 @@ namespace RhinoInside.Revit.UI
 
         if (Instances.ActiveCanvas?.Document is GH_Document definition)
         {
-          var options = new BakeOptions()
+          if (Revit.ActiveUIDocument?.ActiveGraphicalView is DB.View view)
           {
-            Document = Revit.ActiveUIDocument.Document,
-            View = Revit.ActiveUIDocument.Document.ActiveView,
-            Category = DB.Category.GetCategory(Revit.ActiveUIDocument.Document, ActiveBuiltInCategory),
-            Material = default
-          };
+            var options = new BakeOptions()
+            {
+              Document = view.Document,
+              View = view,
+              Category = DB.Category.GetCategory(view.Document, ActiveBuiltInCategory),
+              Material = default
+            };
 
-          return ObjectsToBake(definition, options).Any();
+            return ObjectsToBake(definition, options).Any();
+          }
         }
 
         return false;

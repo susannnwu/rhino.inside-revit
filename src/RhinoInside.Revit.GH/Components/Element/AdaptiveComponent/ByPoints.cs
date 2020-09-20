@@ -1,21 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Linq;
-using Autodesk.Revit.DB;
 using Grasshopper.Kernel;
 using RhinoInside.Revit.Convert.Geometry;
 using RhinoInside.Revit.Convert.System.Collections.Generic;
+using DB = Autodesk.Revit.DB;
 
 namespace RhinoInside.Revit.GH.Components
 {
   public class AdaptiveComponentByPoints : ReconstructElementComponent
   {
     public override Guid ComponentGuid => new Guid("E8DDC0E4-97E9-4659-9945-E8C77114273D");
-    public override GH_Exposure Exposure => GH_Exposure.primary;
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
 
     public AdaptiveComponentByPoints() : base
     (
-      "Add AdaptiveComponent", "AdapComp",
+      "Add Component (Adaptive)", "CompAdap",
       "Given a collection of Points, it adds an AdaptiveComponent element to the active Revit document",
       "Revit", "Build"
     )
@@ -23,16 +24,16 @@ namespace RhinoInside.Revit.GH.Components
 
     protected override void RegisterOutputParams(GH_OutputParamManager manager)
     {
-      manager.AddParameter(new Parameters.GraphicalElement(), "Component", "C", "New AdaptiveComponent", GH_ParamAccess.item);
+      manager.AddParameter(new Parameters.FamilyInstance(), "Component", "C", "New Adaptive Component element", GH_ParamAccess.item);
     }
 
     void ReconstructAdaptiveComponentByPoints
     (
-      Document doc,
-      ref Autodesk.Revit.DB.Element element,
+      DB.Document doc,
+      ref DB.Element element,
 
       IList<Rhino.Geometry.Point3d> points,
-      Autodesk.Revit.DB.FamilySymbol type
+      DB.FamilySymbol type
     )
     {
       var adaptivePoints = points.ConvertAll(GeometryEncoder.ToXYZ);
@@ -43,13 +44,13 @@ namespace RhinoInside.Revit.GH.Components
       // Type
       ChangeElementTypeId(ref element, type.Id);
 
-      if (element is FamilyInstance instance && AdaptiveComponentInstanceUtils.IsAdaptiveComponentInstance(instance))
+      if (element is DB.FamilyInstance instance && DB.AdaptiveComponentInstanceUtils.IsAdaptiveComponentInstance(instance))
       {
-        var adaptivePointIds = AdaptiveComponentInstanceUtils.GetInstancePlacementPointElementRefIds(instance);
-        if (adaptivePointIds.Count == adaptivePoints.Count)
+        var adaptivePointIds = DB.AdaptiveComponentInstanceUtils.GetInstancePlacementPointElementRefIds(instance);
+        if (adaptivePointIds.Count == adaptivePoints.Length)
         {
           int index = 0;
-          foreach (var vertex in adaptivePointIds.Select(id => doc.GetElement(id)).Cast<ReferencePoint>())
+          foreach (var vertex in adaptivePointIds.Select(id => doc.GetElement(id)).Cast<DB.ReferencePoint>())
             vertex.Position = adaptivePoints[index++];
 
           return;
@@ -72,11 +73,11 @@ namespace RhinoInside.Revit.GH.Components
           throw new InvalidOperationException();
         }
 
-        var parametersMask = new BuiltInParameter[]
+        var parametersMask = new DB.BuiltInParameter[]
         {
-          BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM,
-          BuiltInParameter.ELEM_FAMILY_PARAM,
-          BuiltInParameter.ELEM_TYPE_PARAM
+          DB.BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM,
+          DB.BuiltInParameter.ELEM_FAMILY_PARAM,
+          DB.BuiltInParameter.ELEM_TYPE_PARAM
         };
 
         ReplaceElement(ref element, doc.GetElement(newElementIds.First()), parametersMask);

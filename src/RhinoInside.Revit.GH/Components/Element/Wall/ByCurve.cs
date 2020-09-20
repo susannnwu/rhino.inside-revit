@@ -19,15 +19,17 @@ namespace RhinoInside.Revit.GH.Components
 
     public WallByCurve() : base
     (
-      "Add Wall", "Wall",
-      "Given a curve, it adds a Wall element to the active Revit document",
-      "Revit", "Build"
+      name: "Add Wall",
+      nickname: "Wall",
+      description: "Given a curve, it adds a Wall element to the active Revit document",
+      category: "Revit",
+      subCategory: "Wall"
     )
     { }
 
     protected override void RegisterOutputParams(GH_OutputParamManager manager)
     {
-      manager.AddParameter(new Parameters.HostObject(), "Wall", "W", "New Wall", GH_ParamAccess.item);
+      manager.AddParameter(new Parameters.Wall(), "Wall", "W", "New Wall", GH_ParamAccess.item);
     }
 
     protected override void OnAfterStart(DB.Document document, string strTransactionName)

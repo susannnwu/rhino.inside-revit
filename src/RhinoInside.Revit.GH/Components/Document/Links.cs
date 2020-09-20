@@ -1,16 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
+using RhinoInside.Revit.External.DB.Extensions;
 using DB = Autodesk.Revit.DB;
 
 namespace RhinoInside.Revit.GH.Components
 {
-  public class DocumentLinks : DocumentComponent
+  public class DocumentLinks : ElementCollectorComponent
   {
     public override Guid ComponentGuid => new Guid("EBCCFDD8-9F3B-44F4-A209-72D06C8082A5");
     public override GH_Exposure Exposure => GH_Exposure.primary;
     protected override string IconTag => "L";
-
+    protected override DB.ElementFilter ElementFilter => new DB.ElementClassFilter(typeof(DB.RevitLinkType));
 
     public DocumentLinks() : base
     (
@@ -22,32 +24,72 @@ namespace RhinoInside.Revit.GH.Components
     )
     { }
 
-    protected override void RegisterInputParams(GH_InputParamManager manager)
+    protected override ParamDefinition[] Inputs => inputs;
+    static readonly ParamDefinition[] inputs =
     {
-      base.RegisterInputParams(manager);
-    }
+      ParamDefinition.FromParam(DocumentComponent.CreateDocumentParam(), ParamVisibility.Voluntary),
+    };
 
-    protected override void RegisterOutputParams(GH_OutputParamManager manager)
+    protected override ParamDefinition[] Outputs => outputs;
+    static readonly ParamDefinition[] outputs =
     {
-      manager.AddParameter(
-        param: new Parameters.Document(),
-        name: "Linked Documents",
-        nickname: "LD",
-        description: "Revit documents that are linked into given document",
-        access: GH_ParamAccess.list
-        );
-
-    }
+      ParamDefinition.Create<Parameters.Document>("Documents", "D", "Revit documents that are linked into given document", GH_ParamAccess.list)
+    };
 
     protected override void TrySolveInstance(IGH_DataAccess DA, DB.Document doc)
     {
-      using (var collector = new DB.FilteredElementCollector(doc))
+      // Note: linked documents that are not loaded in Revit memory,
+      // are not reported since no interaction can be done if not loaded
+      var docs = new List<DB.Document>();
+      using (var documents = Revit.ActiveDBApplication.Documents)
       {
-        DA.SetDataList(
-          "Linked Documents",
-          // find all link instances in the model, and grab their source document reference
-          collector.OfClass(typeof(DB.RevitLinkInstance)).Cast<DB.RevitLinkInstance>().Select(x => Types.Document.FromDocument(x.GetLinkDocument()))
-          );
+        /* NOTES:
+         * 1) On a cloud host model with links (that are also on cloud)
+         *    .GetAllExternalFileReferences does not return the "File" references
+         *    to the linked cloud models
+         * 2) doc.PathName is not equal to DB.ExternalResourceReference.InSessionPath
+         *    e.g. Same modle but reported paths are different. Respectively:
+         *    "BIM 360://Default Test/Host_Model1.rvt"
+         *    vs
+         *    "BIM 360://Default Test/Project Files/Linked_Project2.rvt"
+         */
+        foreach (var id in DB.ExternalFileUtils.GetAllExternalFileReferences(doc))
+        {
+          var reference = DB.ExternalFileUtils.GetExternalFileReference(doc, id);
+          if (reference.ExternalFileReferenceType == DB.ExternalFileReferenceType.RevitLink)
+          {
+            var modelPath = reference.PathType == DB.PathType.Relative ? reference.GetAbsolutePath() : reference.GetPath();
+            docs.Add(documents.Cast<DB.Document>().Where(x => x.IsLinked && x.HasModelPath(modelPath)).FirstOrDefault());
+          }
+        }
+
+#if REVIT_2020
+        // if no document is reported using DB.ExternalFileUtils then links
+        // are in the cloud. try getting linked documents from DB.RevitLinkType
+        // element types inside the host model
+        if (docs.Count() == 0)
+        {
+          // find all the revit link types in the host model
+          foreach(var revitLinkType in new DB.FilteredElementCollector(doc).OfClass(typeof(DB.RevitLinkType)).ToElements())
+          {
+            // extract the path of external document that is wrapped by the revit link type
+            var linkInfo = revitLinkType.GetExternalResourceReferences().FirstOrDefault();
+            if (linkInfo.Key != null && linkInfo.Value.HasValidDisplayPath())
+            {
+              // stores custom info about the reference (project::model ids)
+              IDictionary<string, string> refInfo = linkInfo.Value.GetReferenceInformation();
+              var linkedDoc = documents.Cast<DB.Document>()
+                                       .Where(x => x.IsLinked
+                                                   && x.GetCloudModelPath().GetModelGUID() == Guid.Parse(refInfo["LinkedModelModelId"]))
+                                       .FirstOrDefault();
+              if (linkedDoc != null)
+                docs.Add(linkedDoc);
+            }
+          }
+        }
+#endif
+
+        DA.SetDataList("Documents", docs);
       }
     }
   }

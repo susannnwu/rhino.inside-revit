@@ -30,7 +30,19 @@ namespace RhinoInside.Revit.Convert.Geometry
       if (!bbox.IsValid || bbox.Diagonal.Length < Revit.ShortCurveTolerance)
         return default;
 
-      return SplitFaces(ref brep);
+      brep.Faces.SplitKinkyFaces(Revit.AngleTolerance, true);
+      brep.Faces.SplitClosedFaces(1);
+      brep.Faces.ShrinkFaces();
+
+      var Identity = new Interval(0.0, 1.0);
+
+      foreach (var face in brep.Faces)
+      {
+        face.SetDomain(0, Identity);
+        face.SetDomain(1, Identity);
+      }
+
+      return brep.IsValid;
     }
 
     static bool SplitFaces(ref Brep brep)
@@ -313,11 +325,11 @@ namespace RhinoInside.Revit.Convert.Geometry
 
     static IEnumerable<DB.BRepBuilderEdgeGeometry> ToBRepBuilderEdgeGeometry(BrepEdge edge)
     {
-      var edgeCurve = edge.EdgeCurve.Trim(edge.Domain);
+      var edgeCurve = edge.EdgeCurve.Trim(edge.Domain) ?? edge.EdgeCurve;
 
-      if (edge.IsShort(Revit.ShortCurveTolerance))
+      if (edgeCurve is null || edge.IsShort(Revit.ShortCurveTolerance, edge.Domain))
       {
-        Debug.WriteLine($"Short edge skipped, Length = {edge.GetLength()}");
+        Debug.WriteLine($"Short edge skipped, Length = {edge.GetLength(edge.Domain)}");
         return Enumerable.Empty<DB.BRepBuilderEdgeGeometry>();
       }
 

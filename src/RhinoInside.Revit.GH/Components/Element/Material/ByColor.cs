@@ -9,11 +9,11 @@ namespace RhinoInside.Revit.GH.Components
   public class MaterialByColor : TransactionComponent
   {
     public override Guid ComponentGuid => new Guid("273FF43D-B771-4EB7-A66D-5DA5F7F2731E");
-    public override GH_Exposure Exposure => GH_Exposure.quarternary;
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
     protected override string IconTag => "C";
 
     public MaterialByColor()
-    : base("Add Color Material", "Material", string.Empty, "Revit", "Material")
+    : base("Add Color Material", "Material", "Quickly create a new Revit material from color", "Revit", "Material")
     { }
 
     protected override void RegisterInputParams(GH_InputParamManager manager)
@@ -29,6 +29,11 @@ namespace RhinoInside.Revit.GH.Components
     protected override void TrySolveInstance(IGH_DataAccess DA)
     {
       var doc = Revit.ActiveDBDocument;
+      if (doc is null)
+      {
+        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Failed to access the active Revit doument");
+        return;
+      }
 
       var color = default(System.Drawing.Color);
       if (!DA.GetData("Color", ref color))

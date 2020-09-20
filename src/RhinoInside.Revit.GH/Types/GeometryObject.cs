@@ -16,9 +16,9 @@ using DB = Autodesk.Revit.DB;
 
 namespace RhinoInside.Revit.GH.Types
 {
-  public class GeometricElement :
-    GraphicalElement,
-    IGH_PreviewMeshData
+  public interface IGH_GeometricElement : IGH_GraphicalElement, IGH_PreviewMeshData { }
+
+  public class GeometricElement : GraphicalElement, IGH_GeometricElement
   {
     public override string TypeDescription => "Represents a Revit geometric element";
 
@@ -26,8 +26,7 @@ namespace RhinoInside.Revit.GH.Types
     {
       get
       {
-        var element = (DB.Element) this;
-        if (element is object)
+        if (APIElement is DB.Element element)
         {
           if (element.get_Parameter(DB.BuiltInParameter.ALL_MODEL_MARK) is DB.Parameter parameter && parameter.HasValue)
           {
@@ -44,15 +43,53 @@ namespace RhinoInside.Revit.GH.Types
     public GeometricElement() { }
     public GeometricElement(DB.Element element) : base(element) { }
 
+    public static new bool IsValidElement(DB.Element element)
+    {
+      if (!GraphicalElement.IsValidElement(element))
+        return false;
+
+      using (var options = new DB.Options())
+        return !(element.get_Geometry(options) is null);
+    }
+
+    public override BoundingBox GetBoundingBox(Transform xform)
+    {
+      if (!(APIElement is DB.Element element))
+        return BoundingBox.Unset;
+
+      var bbox = ClippingBox;
+      if (!xform.IsIdentity)
+      {
+        bbox.Transform(xform);
+
+        var meshes = TryGetPreviewMeshes();
+        var wires = TryGetPreviewWires();
+        if (meshes is null && wires is null)
+          BuildPreview(element, default, DB.ViewDetailLevel.Medium, out var _, out meshes, out wires);
+
+        if (meshes?.Length > 0 || wires?.Length > 0)
+        {
+          bbox = BoundingBox.Empty;
+          foreach (var mesh in meshes)
+            bbox.Union(mesh.GetBoundingBox(xform));
+
+          foreach (var wire in wires)
+            bbox.Union(wire.GetBoundingBox(xform));
+        }
+      }
+
+      return bbox;
+    }
+
     #region Preview
     public static void BuildPreview
     (
-      DB.Element element, MeshingParameters meshingParameters, DB.ViewDetailLevel DetailLevel,
+      DB.Element element, MeshingParameters meshingParameters, DB.ViewDetailLevel detailLevel,
       out Rhino.Display.DisplayMaterial[] materials, out Mesh[] meshes, out Curve[] wires
     )
     {
-      DB.Options options = null;
-      using (var geometry = element?.GetGeometry(DetailLevel == DB.ViewDetailLevel.Undefined ? DB.ViewDetailLevel.Medium : DetailLevel, out options)) using (options)
+      using (var options = new DB.Options() { DetailLevel = detailLevel == DB.ViewDetailLevel.Undefined ? DB.ViewDetailLevel.Medium : detailLevel })
+      using (var geometry = element?.GetGeometry(options))
       {
         if (geometry is null)
         {
@@ -80,8 +117,8 @@ namespace RhinoInside.Revit.GH.Types
               if (dependent.get_BoundingBox(null) is null)
                 continue;
 
-              DB.Options dependentOptions = null;
-              using (var dependentGeometry = dependent?.GetGeometry(DetailLevel == DB.ViewDetailLevel.Undefined ? DB.ViewDetailLevel.Medium : DetailLevel, out dependentOptions)) using (dependentOptions)
+              using (var dependentOptions = new DB.Options() { DetailLevel = detailLevel == DB.ViewDetailLevel.Undefined ? DB.ViewDetailLevel.Medium : detailLevel })
+              using (var dependentGeometry = dependent?.GetGeometry(dependentOptions))
               {
                 if (dependentGeometry is object)
                 {
@@ -224,14 +261,14 @@ namespace RhinoInside.Revit.GH.Types
       return GeometryPreview.materials;
     }
 
-    public Mesh[] TryGetPreviewMeshes(MeshingParameters parameters = default)
+    public Mesh[] TryGetPreviewMeshes(MeshingParameters parameters)
     {
-      if (parameters is object && !ReferenceEquals(meshingParameters, parameters))
+      if (!ReferenceEquals(meshingParameters, parameters))
       {
         meshingParameters = parameters;
         if (geometryPreview is object)
         {
-          if (geometryPreview.MeshingParameters?.RelativeTolerance != meshingParameters.RelativeTolerance)
+          if (geometryPreview.MeshingParameters?.RelativeTolerance != meshingParameters?.RelativeTolerance)
             GeometryPreview = null;
         }
       }
@@ -239,10 +276,9 @@ namespace RhinoInside.Revit.GH.Types
       return GeometryPreview.meshes;
     }
 
-    public Curve[] TryGetPreviewWires()
-    {
-      return GeometryPreview.wires;
-    }
+    public Mesh[] TryGetPreviewMeshes() => GeometryPreview.meshes;
+
+    public Curve[] TryGetPreviewWires() => GeometryPreview.wires;
     #endregion
 
     #region IGH_PreviewData
@@ -354,7 +390,7 @@ namespace RhinoInside.Revit.GH.Types
     void IGH_PreviewMeshData.DestroyPreviewMeshes()
     {
       GeometryPreview = null;
-      clippingBox = BoundingBox.Empty;
+      clippingBox = null;
     }
 
     Mesh[] IGH_PreviewMeshData.GetPreviewMeshes()
@@ -812,9 +848,7 @@ namespace RhinoInside.Revit.GH.Types
           if (Value.ToBrep() is Brep brep)
           {
             if (element is DB.Instance instance)
-              brep.Transform(Transform.Scale(Point3d.Origin, Revit.ModelUnits) * instance.GetTransform().ToTransform());
-            else
-              brep.Scale(Revit.ModelUnits);
+              brep.Transform(instance.GetTransform().ToTransform());
 
             target = (Q) (object) new GH_Surface(brep);
           }
@@ -826,9 +860,7 @@ namespace RhinoInside.Revit.GH.Types
           if (Value.ToBrep() is Brep brep)
           {
             if (element is DB.Instance instance)
-              brep.Transform(Transform.Scale(Point3d.Origin, Revit.ModelUnits) * instance.GetTransform().ToTransform());
-            else
-              brep.Scale(Revit.ModelUnits);
+              brep.Transform(instance.GetTransform().ToTransform());
 
             target = (Q) (object) new GH_Brep(brep);
           }
@@ -840,9 +872,7 @@ namespace RhinoInside.Revit.GH.Types
           if (Value.Triangulate()?.ToMesh() is Mesh mesh)
           {
             if (element is DB.Instance instance)
-              mesh.Transform(Transform.Scale(Point3d.Origin, Revit.ModelUnits) * instance.GetTransform().ToTransform());
-            else
-              mesh.Scale(Revit.ModelUnits);
+              mesh.Transform(instance.GetTransform().ToTransform());
 
             mesh.Normals.ComputeNormals();
 

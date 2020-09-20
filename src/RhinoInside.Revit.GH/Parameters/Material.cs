@@ -1,9 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
 using Grasshopper.GUI;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Types;
 using DB = Autodesk.Revit.DB;
 
 namespace RhinoInside.Revit.GH.Parameters
@@ -12,12 +12,14 @@ namespace RhinoInside.Revit.GH.Parameters
   {
     public override GH_Exposure Exposure => GH_Exposure.quarternary;
     public override Guid ComponentGuid => new Guid("B18EF2CC-2E67-4A5E-9241-9010FB7D27CE");
-    protected override Types.Material PreferredCast(object data) => Types.Material.FromElement(data as DB.Material) as Types.Material;
 
-    public Material() : base("Material", "Material", "Represents a Revit document material.", "Params", "Revit") { }
+    public Material() : base("Material", "Material", "Represents a Revit document material.", "Params", "Revit Primitives") { }
 
     protected override void Menu_AppendPromptOne(ToolStripDropDown menu)
     {
+      if (SourceCount != 0)
+        return;
+
       var listBox = new ListBox();
       listBox.BorderStyle = BorderStyle.FixedSingle;
       listBox.Width = (int) (200 * GH_GraphicsUtil.UiScale);
@@ -31,6 +33,7 @@ namespace RhinoInside.Revit.GH.Parameters
       materialCategoryBox.Tag = listBox;
       materialCategoryBox.SelectedIndexChanged += MaterialCategoryBox_SelectedIndexChanged;
       materialCategoryBox.SetCueBanner("Material class filter…");
+      materialCategoryBox.Sorted = true;
 
       using (var collector = new DB.FilteredElementCollector(Revit.ActiveUIDocument.Document))
       {
@@ -43,9 +46,22 @@ namespace RhinoInside.Revit.GH.Parameters
 
         foreach(var cat in materials)
           materialCategoryBox.Items.Add(cat.Key);
-      }
 
-      RefreshMaterialsList(listBox, null);
+        if (Current?.APIElement is DB.Material current)
+        {
+          var familyIndex = 0;
+          foreach (var materialClass in materialCategoryBox.Items.Cast<string>())
+          {
+            if (current.MaterialClass == materialClass)
+            {
+              materialCategoryBox.SelectedIndex = familyIndex;
+              break;
+            }
+            familyIndex++;
+          }
+        }
+        else RefreshMaterialsList(listBox, default);
+      }      
 
       Menu_AppendCustomItem(menu, materialCategoryBox);
       Menu_AppendCustomItem(menu, listBox);
@@ -63,40 +79,23 @@ namespace RhinoInside.Revit.GH.Parameters
     private void RefreshMaterialsList(ListBox listBox, string materialClass)
     {
       var doc = Revit.ActiveUIDocument.Document;
-      var selectedIndex = -1;
 
-      try
+      listBox.SelectedIndexChanged -= ListBox_SelectedIndexChanged;
+      listBox.Items.Clear();
+
+      using (var collector = new DB.FilteredElementCollector(doc).OfClass(typeof(DB.Material)))
       {
-        listBox.SelectedIndexChanged -= ListBox_SelectedIndexChanged;
-        listBox.Items.Clear();
+        var materials = collector.
+                        Cast<DB.Material>().
+                        Where(x => string.IsNullOrEmpty(materialClass) || x.MaterialClass == materialClass);
 
-        var current = default(Types.Material);
-        if (SourceCount == 0 && PersistentDataCount == 1)
-        {
-          if (PersistentData.get_FirstItem(true) is Types.Material firstValue)
-            current = firstValue.Duplicate() as Types.Material;
-        }
-
-        using (var collector = new DB.FilteredElementCollector(doc).OfClass(typeof(DB.Material)))
-        {
-          var materials = collector.
-                          Cast<DB.Material>().
-                          Where(x => string.IsNullOrEmpty(materialClass) || x.MaterialClass == materialClass);
-
-          foreach (var material in materials)
-          {
-            var tag = new Types.Material(material);
-            int index = listBox.Items.Add(tag.EmitProxy());
-            if (tag.UniqueID == current?.UniqueID)
-              selectedIndex = index;
-          }
-        }
+        listBox.DisplayMember = "DisplayName";
+        foreach (var material in materials)
+          listBox.Items.Add(new Types.Material(material));
       }
-      finally
-      {
-        listBox.SelectedIndex = selectedIndex;
-        listBox.SelectedIndexChanged += ListBox_SelectedIndexChanged;
-      }
+
+      listBox.SelectedIndex = listBox.Items.OfType<Types.Material>().IndexOf(Current, 0).FirstOr(-1);
+      listBox.SelectedIndexChanged += ListBox_SelectedIndexChanged;
     }
 
     private void ListBox_SelectedIndexChanged(object sender, EventArgs e)
@@ -105,17 +104,16 @@ namespace RhinoInside.Revit.GH.Parameters
       {
         if (listBox.SelectedIndex != -1)
         {
-          if (listBox.Items[listBox.SelectedIndex] is IGH_GooProxy value)
+          if (listBox.Items[listBox.SelectedIndex] is Types.Material value)
           {
             RecordUndoEvent($"Set: {value}");
             PersistentData.Clear();
-            PersistentData.Append(value.ProxyOwner.Duplicate() as Types.Material);
+            PersistentData.Append(value);
           }
         }
 
         ExpireSolution(true);
       }
     }
-
   }
 }

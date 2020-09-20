@@ -1,9 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
 using Grasshopper.GUI;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Types;
 using DB = Autodesk.Revit.DB;
 
 namespace RhinoInside.Revit.GH.Parameters
@@ -13,45 +13,43 @@ namespace RhinoInside.Revit.GH.Parameters
     public override GH_Exposure Exposure => GH_Exposure.quarternary;
     public override Guid ComponentGuid => new Guid("6722C7A5-EFD3-4119-A7FD-6C8BE892FD04");
 
-    public Category() : base("Category", "Category", "Represents a Revit document category.", "Params", "Revit") { }
-
-    protected override Types.Category PreferredCast(object data) => Types.Category.FromValue(data);
+    public Category() : base("Category", "Category", "Represents a Revit document category.", "Params", "Revit Primitives") { }
 
     protected override void Menu_AppendPromptOne(ToolStripDropDown menu)
     {
-      var listBox = new ListBox();
-      listBox.BorderStyle = BorderStyle.FixedSingle;
-      listBox.Width = (int) (200 * GH_GraphicsUtil.UiScale);
-      listBox.Height = (int) (100 * GH_GraphicsUtil.UiScale);
+      if (SourceCount != 0)
+        return;
+
+      var listBox = new ListBox
+      {
+        Sorted = true,
+        BorderStyle = BorderStyle.FixedSingle,
+        Width = (int) (200 * GH_GraphicsUtil.UiScale),
+        Height = (int) (100 * GH_GraphicsUtil.UiScale)
+      };
       listBox.SelectedIndexChanged += ListBox_SelectedIndexChanged;
-      listBox.Sorted = true;
 
-      RefreshCategoryList(listBox, DB.CategoryType.Model);
-
-      var categoriesTypeBox = new ComboBox();
-      categoriesTypeBox.DropDownStyle = ComboBoxStyle.DropDownList;
-      categoriesTypeBox.Width = (int) (200 * GH_GraphicsUtil.UiScale);
-      categoriesTypeBox.Tag = listBox;
+      var categoriesTypeBox = new ComboBox
+      {
+        DropDownStyle = ComboBoxStyle.DropDownList,
+        Width = (int) (200 * GH_GraphicsUtil.UiScale),
+        Tag = listBox
+      };
       categoriesTypeBox.SelectedIndexChanged += CategoriesTypeBox_SelectedIndexChanged;
       categoriesTypeBox.Items.Add("Model");
       categoriesTypeBox.Items.Add("Annotation");
       categoriesTypeBox.Items.Add("Tags");
       categoriesTypeBox.Items.Add("Internal");
       categoriesTypeBox.Items.Add("Analytical");
-      categoriesTypeBox.SelectedIndex = 0;
 
-      if
-      (
-        SourceCount == 0 && PersistentDataCount == 1 &&
-        PersistentData.get_FirstItem(true) is Types.Category firstValue &&
-        firstValue.LoadElement() &&
-        (DB.Category) firstValue is DB.Category current
-      )
+      if(Current?.APICategory is DB.Category current)
       {
-        categoriesTypeBox.SelectedIndex = (int) current.CategoryType - 1;
         if (current.IsTagCategory)
           categoriesTypeBox.SelectedIndex = 2;
+        else
+          categoriesTypeBox.SelectedIndex = (int) current.CategoryType - 1;
       }
+      else categoriesTypeBox.SelectedIndex = 0;
 
       Menu_AppendCustomItem(menu, categoriesTypeBox);
       Menu_AppendCustomItem(menu, listBox);
@@ -72,40 +70,22 @@ namespace RhinoInside.Revit.GH.Parameters
       if (doc is null)
         return;
 
-      var selectedIndex = -1;
+      listBox.SelectedIndexChanged -= ListBox_SelectedIndexChanged;
+      listBox.Items.Clear();
 
-      try
+      using (var collector = doc.Settings.Categories)
       {
-        listBox.SelectedIndexChanged -= ListBox_SelectedIndexChanged;
-        listBox.Items.Clear();
+        var categories = collector.
+                          Cast<DB.Category>().
+                          Where(x => 3 == (int) categoryType ? x.IsTagCategory : x.CategoryType == categoryType && !x.IsTagCategory);
 
-        var current = default(Types.Category);
-        if (SourceCount == 0 && PersistentDataCount == 1)
-        {
-          if (PersistentData.get_FirstItem(true) is Types.Category firstValue)
-            current = firstValue as Types.Category;
-        }
-
-        using (var collector = doc.Settings.Categories)
-        {
-          var categories = collector.
-                           Cast<DB.Category>().
-                           Where(x => 3 == (int) categoryType ? x.IsTagCategory : x.CategoryType == categoryType && !x.IsTagCategory);
-
-          foreach (var category in categories)
-          {
-            var tag = Types.Category.FromCategory(category);
-            int index = listBox.Items.Add(tag.EmitProxy());
-            if (tag.UniqueID == current?.UniqueID)
-              selectedIndex = index;
-          }
-        }
+        listBox.DisplayMember = "DisplayName";
+        foreach (var category in categories)
+          listBox.Items.Add(Types.Category.FromCategory(category));
       }
-      finally
-      {
-        listBox.SelectedIndex = selectedIndex;
-        listBox.SelectedIndexChanged += ListBox_SelectedIndexChanged;
-      }
+
+      listBox.SelectedIndex = listBox.Items.OfType<Types.Category>().IndexOf(Current, 0).FirstOr(-1);
+      listBox.SelectedIndexChanged += ListBox_SelectedIndexChanged;
     }
 
     private void ListBox_SelectedIndexChanged(object sender, EventArgs e)
@@ -114,11 +94,11 @@ namespace RhinoInside.Revit.GH.Parameters
       {
         if (listBox.SelectedIndex != -1)
         {
-          if (listBox.Items[listBox.SelectedIndex] is IGH_GooProxy value)
+          if (listBox.Items[listBox.SelectedIndex] is Types.Category value)
           {
             RecordUndoEvent($"Set: {value}");
             PersistentData.Clear();
-            PersistentData.Append(value.ProxyOwner as Types.Category);
+            PersistentData.Append(value);
           }
         }
 
@@ -132,6 +112,6 @@ namespace RhinoInside.Revit.GH.Parameters
     public override GH_Exposure Exposure => GH_Exposure.hidden;
     public override Guid ComponentGuid => new Guid("833E6207-BA60-4C6B-AB8B-96FDA0F91822");
 
-    public GraphicsStyle() : base("Graphics Style", "Graphics Style", "Represents a Revit graphics style.", "Params", "Revit") { }
+    public GraphicsStyle() : base("Graphics Style", "Graphics Style", "Represents a Revit graphics style.", "Params", "Revit Primitives") { }
   }
 }

@@ -4,10 +4,17 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 
 [dev-packages]
+mypy = "*"
+pylint = "*"
 
 [packages]
 rjm = "*"
 docopt = "*"
+requests = "*"
 
 [requires]
-python_version = "3.7"
+python_version = "3.8"
+
+[scripts]
+dbgrevit = "python ./dbgrevit.py"
+dbgzip = "python ./dbgzip.py"

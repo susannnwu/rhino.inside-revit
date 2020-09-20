@@ -6,19 +6,25 @@ using Grasshopper.GUI;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Special;
 using Grasshopper.Kernel.Types;
+using RhinoInside.Revit.External.DB.Extensions;
 using DB = Autodesk.Revit.DB;
 
 namespace RhinoInside.Revit.GH.Parameters
 {
-  public class ElementType : ElementIdWithoutPreviewParam<Types.ElementType, DB.ElementType>
+  public class ElementType : ElementIdWithoutPreviewParam<Types.IGH_ElementType, DB.ElementType>
   {
     public override GH_Exposure Exposure => GH_Exposure.quarternary;
     public override Guid ComponentGuid => new Guid("97DD546D-65C3-4D00-A609-3F5FBDA67142");
 
-    public ElementType() : base("Element Type", "Element Type", "Represents a Revit document element type.", "Params", "Revit") { }
+    public ElementType() : base("Type", "Type", "Represents a Revit document element type.", "Params", "Revit Primitives") { }
+
+    protected override Types.IGH_ElementType InstantiateT() => new Types.ElementType();
 
     protected override void Menu_AppendPromptOne(ToolStripDropDown menu)
     {
+      if (SourceCount != 0)
+        return;
+
       var elementTypesBox = new ListBox();
       elementTypesBox.BorderStyle = BorderStyle.FixedSingle;
       elementTypesBox.Width = (int) (300 * GH_GraphicsUtil.UiScale);
@@ -54,7 +60,38 @@ namespace RhinoInside.Revit.GH.Parameters
       categoriesTypeBox.Items.Add("Tags");
       categoriesTypeBox.Items.Add("Internal");
       categoriesTypeBox.Items.Add("Analytical");
-      categoriesTypeBox.SelectedIndex = 0;
+
+      if (Current?.APIElementType is DB.ElementType current)
+      {
+        if (current.Category.IsTagCategory)
+          categoriesTypeBox.SelectedIndex = 3;
+        else
+          categoriesTypeBox.SelectedIndex = (int) current.Category.CategoryType;
+
+        var categoryIndex = 0;
+        var currentCategory = Types.Category.FromCategory(current.Category);
+        foreach (var category in categoriesBox.Items.Cast<Types.Category>())
+        {
+          if (currentCategory.Equals(category))
+          {
+            categoriesBox.SelectedIndex = categoryIndex;
+            break;
+          }
+          categoryIndex++;
+        }
+
+        var familyIndex = 0;
+        foreach (var familyName in familiesBox.Items.Cast<string>())
+        {
+          if (current.GetFamilyName() == familyName)
+          {
+            familiesBox.SelectedIndex = familyIndex;
+            break;
+          }
+          familyIndex++;
+        }
+      }
+      else categoriesTypeBox.SelectedIndex = 0;
 
       Menu_AppendCustomItem(menu, categoriesTypeBox);
       Menu_AppendCustomItem(menu, categoriesBox);
@@ -76,11 +113,9 @@ namespace RhinoInside.Revit.GH.Parameters
 
       categoriesBox.SelectedIndex = -1;
       categoriesBox.Items.Clear();
+      categoriesBox.DisplayMember = "DisplayName";
       foreach (var category in categories.OrderBy(x => x.Name))
-      {
-        var tag = Types.Category.FromCategory(category);
-        int index = categoriesBox.Items.Add(tag.EmitProxy());
-      }
+        categoriesBox.Items.Add(Types.Category.FromCategory(category));
     }
 
     private void RefreshFamiliesBox(ComboBox familiesBox, ComboBox categoriesBox)
@@ -91,17 +126,16 @@ namespace RhinoInside.Revit.GH.Parameters
       using (var collector = new DB.FilteredElementCollector(Revit.ActiveUIDocument.Document))
       {
         var categories = (
-                  categoriesBox.SelectedItem is IGH_GooProxy proxy ?
-                    Enumerable.Repeat(proxy, 1) :
-                    categoriesBox.Items.OfType<IGH_GooProxy>()
+                  categoriesBox.SelectedItem is Types.Category category ?
+                    Enumerable.Repeat(category, 1) :
+                    categoriesBox.Items.OfType<Types.Category>()
                   ).
-                  Select(x => x.ProxyOwner as Types.Category).
                   Select(x => x.Id).
                   ToArray();
 
         foreach (var familyName in collector.WhereElementIsElementType().
           WherePasses(new DB.ElementMulticategoryFilter(categories)).
-          ToElements().Cast<DB.ElementType>().GroupBy(x => x.FamilyName).Select(x => x.Key))
+          ToElements().Cast<DB.ElementType>().GroupBy(x => x.GetFamilyName()).Select(x => x.Key))
         {
           familiesBox.Items.Add(familyName);
         }
@@ -112,62 +146,48 @@ namespace RhinoInside.Revit.GH.Parameters
     {
       var doc = Revit.ActiveUIDocument.Document;
 
-      try
+      listBox.SelectedIndexChanged -= ElementTypesBox_SelectedIndexChanged;
+      listBox.Items.Clear();
+
       {
-        listBox.SelectedIndexChanged -= ElementTypesBox_SelectedIndexChanged;
-        listBox.Items.Clear();
+        var categories = (
+                            categoriesBox.SelectedItem is Types.Category category ?
+                            Enumerable.Repeat(category, 1) :
+                            categoriesBox.Items.OfType<Types.Category>()
+                          ).
+                          Select(x => x.Id).
+                          ToArray();
 
-        var current = default(Types.ElementType);
-        if (SourceCount == 0 && PersistentDataCount == 1)
+        if (categories.Length > 0)
         {
-          if (PersistentData.get_FirstItem(true) is Types.ElementType firstValue)
-            current = firstValue as Types.ElementType;
-        }
-
-        {
-          var categories = (
-                            categoriesBox.SelectedItem is IGH_GooProxy proxy ?
-                              Enumerable.Repeat(proxy, 1) :
-                              categoriesBox.Items.OfType<IGH_GooProxy>()
-                           ).
-                           Select(x => x.ProxyOwner as Types.Category).
-                           Select(x => x.Id).
-                           ToArray();
-
-          if (categories.Length > 0)
+          var elementTypes = default(IEnumerable<DB.ElementId>);
+          using (var collector = new DB.FilteredElementCollector(Revit.ActiveUIDocument.Document))
           {
-            var elementTypes = default(IEnumerable<DB.ElementId>);
-            using (var collector = new DB.FilteredElementCollector(Revit.ActiveUIDocument.Document))
-            {
-              elementTypes = collector.WhereElementIsElementType().
-                             WherePasses(new DB.ElementMulticategoryFilter(categories)).
-                             ToElementIds();
-            }
+            elementTypes = collector.WhereElementIsElementType().
+                            WherePasses(new DB.ElementMulticategoryFilter(categories)).
+                            ToElementIds();
+          }
 
-            var familyName = familiesBox.SelectedItem as string;
+          var familyName = familiesBox.SelectedItem as string;
 
-            foreach (var elementType in elementTypes)
-            {
-              if
-              (
-                !string.IsNullOrEmpty(familyName) &&
-                doc.GetElement(elementType) is DB.ElementType type &&
-                type.FamilyName != familyName
-              )
-                continue;
+          listBox.DisplayMember = "DisplayName";
+          foreach (var elementType in elementTypes)
+          {
+            if
+            (
+              !string.IsNullOrEmpty(familyName) &&
+              doc.GetElement(elementType) is DB.ElementType type &&
+              type.GetFamilyName() != familyName
+            )
+              continue;
 
-              var tag = Types.ElementType.FromElementId(doc, elementType);
-              int index = listBox.Items.Add(tag.EmitProxy());
-              if (tag.UniqueID == current?.UniqueID)
-                listBox.SetSelected(index, true);
-            }
+            listBox.Items.Add(Types.ElementType.FromElementId(doc, elementType));
           }
         }
       }
-      finally
-      {
-        listBox.SelectedIndexChanged += ElementTypesBox_SelectedIndexChanged;
-      }
+
+      listBox.SelectedIndex = listBox.Items.OfType<Types.ElementType>().IndexOf(Current, 0).FirstOr(-1);
+      listBox.SelectedIndexChanged += ElementTypesBox_SelectedIndexChanged;
     }
 
     private void CategoryType_SelectedIndexChanged(object sender, EventArgs e)
@@ -204,11 +224,11 @@ namespace RhinoInside.Revit.GH.Parameters
       {
         if (listBox.SelectedIndex != -1)
         {
-          if (listBox.Items[listBox.SelectedIndex] is IGH_GooProxy value)
+          if (listBox.Items[listBox.SelectedIndex] is Types.ElementType value)
           {
             RecordUndoEvent($"Set: {value}");
             PersistentData.Clear();
-            PersistentData.Append(value.ProxyOwner as Types.ElementType);
+            PersistentData.Append(value);
           }
         }
 
@@ -236,12 +256,12 @@ namespace RhinoInside.Revit.GH.Parameters
       base.AddedToDocument(document);
     }
 
-    protected override void RefreshList(string FamilyName)
+    protected override void RefreshList(string familyName)
     {
       var selectedItems = ListItems.Where(x => x.Selected).Select(x => x.Expression).ToList();
       ListItems.Clear();
 
-      if (FamilyName.Length == 0 || FamilyName[0] == '\'')
+      if (familyName.Length == 0 || familyName[0] == '\'')
         return;
 
       if (Revit.ActiveDBDocument is object)
@@ -249,19 +269,29 @@ namespace RhinoInside.Revit.GH.Parameters
         int selectedItemsCount = 0;
         using (var collector = new DB.FilteredElementCollector(Revit.ActiveDBDocument))
         {
-          foreach (var elementType in collector.WhereElementIsElementType().Cast<DB.ElementType>())
+          var elementCollector = collector.WhereElementIsElementType();
+
+          if (Components.ElementCollectorComponent.TryGetFilterStringParam(DB.BuiltInParameter.SYMBOL_FAMILY_NAME_PARAM, ref familyName, out var familyNameFilter))
+            elementCollector = elementCollector.WherePasses(familyNameFilter);
+
+          var elementTypes = elementCollector.Cast<DB.ElementType>();
+
+          foreach (var elementType in elementTypes)
           {
-            if (!elementType.FamilyName.IsSymbolNameLike(FamilyName))
-              continue;
+            if (familyName is object)
+            {
+              if (!elementType.GetFamilyName().IsSymbolNameLike(familyName))
+                continue;
+            }
 
             if (SourceCount == 0)
             {
               // If is a no pattern match update NickName case
-              if (string.Equals(elementType.FamilyName, FamilyName, StringComparison.OrdinalIgnoreCase))
-                FamilyName = elementType.FamilyName;
+              if (string.Equals(elementType.GetFamilyName(), familyName, StringComparison.OrdinalIgnoreCase))
+                familyName = elementType.GetFamilyName();
             }
 
-            var item = new GH_ValueListItem(elementType.FamilyName + " : " + elementType.Name, elementType.Id.IntegerValue.ToString());
+            var item = new GH_ValueListItem(elementType.GetFamilyName() + " : " + elementType.Name, elementType.Id.IntegerValue.ToString());
             item.Selected = selectedItems.Contains(item.Expression);
             ListItems.Add(item);
 
@@ -272,7 +302,7 @@ namespace RhinoInside.Revit.GH.Parameters
         // If no selection and we are not in CheckList mode try to select default model types
         if (ListItems.Count == 0)
         {
-          AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, string.Format("No ElementType found using pattern \"{0}\"", FamilyName));
+          AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, string.Format("No ElementType found using pattern \"{0}\"", familyName));
         }
         else if (selectedItemsCount == 0 && ListMode != GH_ValueListMode.CheckList)
         {
@@ -306,15 +336,15 @@ namespace RhinoInside.Revit.GH.Parameters
             var e = new Types.Element();
             if (e.CastFrom(goo))
             {
-              switch ((DB.Element) e)
+              switch (e.APIElement)
               {
                 case DB.Family family:
                   foreach (var elementType in elementTypeCollector.Cast<DB.ElementType>())
                   {
-                    if (elementType.FamilyName != family.Name)
+                    if (elementType.GetFamilyName() != family.Name)
                       continue;
 
-                    var item = new GH_ValueListItem(elementType.FamilyName + " : " + elementType.Name, elementType.Id.IntegerValue.ToString());
+                    var item = new GH_ValueListItem(elementType.GetFamilyName() + " : " + elementType.Name, elementType.Id.IntegerValue.ToString());
                     item.Selected = selectedItems.Contains(item.Expression);
                     ListItems.Add(item);
 
@@ -323,7 +353,7 @@ namespace RhinoInside.Revit.GH.Parameters
                   break;
                 case DB.ElementType elementType:
                   {
-                    var item = new GH_ValueListItem(elementType.FamilyName + " : " + elementType.Name, elementType.Id.IntegerValue.ToString());
+                    var item = new GH_ValueListItem(elementType.GetFamilyName() + " : " + elementType.Name, elementType.Id.IntegerValue.ToString());
                     item.Selected = selectedItems.Contains(item.Expression);
                     ListItems.Add(item);
 
@@ -333,7 +363,7 @@ namespace RhinoInside.Revit.GH.Parameters
                 case DB.Element element:
                   {
                     var type = Revit.ActiveDBDocument.GetElement(element.GetTypeId()) as DB.ElementType;
-                    var item = new GH_ValueListItem(type.FamilyName + " : " + type.Name, type.Id.IntegerValue.ToString());
+                    var item = new GH_ValueListItem(type.GetFamilyName() + " : " + type.Name, type.Id.IntegerValue.ToString());
                     item.Selected = selectedItems.Contains(item.Expression);
                     ListItems.Add(item);
 
@@ -349,7 +379,7 @@ namespace RhinoInside.Revit.GH.Parameters
               {
                 foreach (var elementType in elementTypeCollector.OfCategoryId(c.Value).Cast<DB.ElementType>())
                 {
-                  var item = new GH_ValueListItem(elementType.FamilyName + " : " + elementType.Name, elementType.Id.IntegerValue.ToString());
+                  var item = new GH_ValueListItem(elementType.GetFamilyName() + " : " + elementType.Name, elementType.Id.IntegerValue.ToString());
                   item.Selected = selectedItems.Contains(item.Expression);
                   ListItems.Add(item);
 

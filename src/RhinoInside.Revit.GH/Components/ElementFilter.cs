@@ -3,13 +3,57 @@ using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
-using RhinoInside.Revit.Convert.Units;
 using RhinoInside.Revit.Convert.Geometry;
 using RhinoInside.Revit.External.DB.Extensions;
 using DB = Autodesk.Revit.DB;
 
 namespace RhinoInside.Revit.GH.Components
 {
+  public class FilterElement : Component
+  {
+    public override Guid ComponentGuid => new Guid("36180A9E-04CA-4B38-82FE-C6707B32C680");
+    public override GH_Exposure Exposure => GH_Exposure.primary;
+    protected override string IconTag => "Y";
+
+    public FilterElement() : base
+    (
+      name: "Filter Element",
+      nickname: "FiltElem",
+      description: "Evaluate if an Element pass a Filter",
+      category: "Revit",
+      subCategory: "Filter"
+    )
+    { }
+
+    protected override void RegisterInputParams(GH_InputParamManager manager)
+    {
+      manager.AddParameter(new Parameters.Element(), "Elements", "E", "Elements to filter", GH_ParamAccess.list);
+      manager.AddParameter(new Parameters.ElementFilter(), "Filter", "F", "Filter to apply", GH_ParamAccess.item);
+    }
+
+    protected override void RegisterOutputParams(GH_OutputParamManager manager)
+    {
+      manager.AddBooleanParameter("Pass", "P", "True if the input Element is accepted by the Filter. False if the element is rejected.", GH_ParamAccess.list);
+    }
+
+    protected override void TrySolveInstance(IGH_DataAccess DA)
+    {
+      var elements = new List<Types.Element>();
+      if (!DA.GetDataList("Elements", elements))
+        return;
+
+      var filter = default(DB.ElementFilter);
+      if (!DA.GetData("Filter", ref filter))
+        return;
+
+      var pass = new List<bool>(elements.Count);
+      foreach (var element in elements)
+        pass.Add(element.IsValid && filter.PassesFilter(element.Document, element.Id));
+
+      DA.SetDataList("Pass", pass);
+    }
+  }
+
   public abstract class ElementFilterComponent : Component
   {
     protected ElementFilterComponent(string name, string nickname, string description, string category, string subCategory)
@@ -115,7 +159,7 @@ namespace RhinoInside.Revit.GH.Components
     protected override string IconTag => "T";
 
     public ElementExcludeElementTypeFilter()
-    : base("Exclude ElementType", "NotElementType", "Filter used to exclude element types", "Revit", "Filter")
+    : base("Exclude Types", "NotTypes", "Filter used to exclude element types", "Revit", "Filter")
     { }
 
     protected override void TrySolveInstance(IGH_DataAccess DA)
@@ -271,15 +315,6 @@ namespace RhinoInside.Revit.GH.Components
           var rule = new DB.FilterElementIdRule(provider, new DB.FilterNumericEquals(), typeIds[0]);
           var filter = new DB.ElementParameterFilter(rule, inverted) as DB.ElementFilter;
 
-          if (typeIds[0] == DB.ElementId.InvalidElementId)
-          {
-            filter = new DB.LogicalAndFilter
-            (
-              new DB.ElementClassFilter(typeof(DB.PropertySetElement), inverted),
-              filter
-            );
-          }
-
           DA.SetData("Filter", filter);
         }
         else
@@ -296,6 +331,36 @@ namespace RhinoInside.Revit.GH.Components
           }
         }
       }
+    }
+  }
+
+  public class ElementParameterFilter : ElementFilterComponent
+  {
+    public override Guid ComponentGuid => new Guid("E6A1F501-BDA4-4B78-8828-084B5EDA926F");
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
+    protected override string IconTag => "#";
+
+    public ElementParameterFilter()
+    : base("Parameter Filter", "ParaFilter", "Filter used to match elements by the value of a parameter", "Revit", "Filter")
+    { }
+
+    protected override void RegisterInputParams(GH_InputParamManager manager)
+    {
+      manager.AddParameter(new Parameters.FilterRule(), "Rules", "R", "Rules to check", GH_ParamAccess.list);
+      base.RegisterInputParams(manager);
+    }
+
+    protected override void TrySolveInstance(IGH_DataAccess DA)
+    {
+      var rules = new List<DB.FilterRule>();
+      if (!DA.GetDataList("Rules", rules))
+        return;
+
+      var inverted = false;
+      if (!DA.GetData("Inverted", ref inverted))
+        return;
+
+      DA.SetData("Filter", new DB.ElementParameterFilter(rules, inverted));
     }
   }
   #endregion
@@ -360,12 +425,10 @@ namespace RhinoInside.Revit.GH.Components
           targets.Add(box);
         }
 
-        var outline = new DB.Outline(pointsBBox.Min.ToXYZ(), pointsBBox.Max.ToXYZ());
-
         if (strict)
-          filter = new DB.BoundingBoxIsInsideFilter(outline, tolerance / Revit.ModelUnits, inverted);
+          filter = new DB.BoundingBoxIsInsideFilter(pointsBBox.ToOutline(), tolerance / Revit.ModelUnits, inverted);
         else
-          filter = new DB.BoundingBoxIntersectsFilter(outline, tolerance / Revit.ModelUnits, inverted);
+          filter = new DB.BoundingBoxIntersectsFilter(pointsBBox.ToOutline(), tolerance / Revit.ModelUnits, inverted);
       }
       else
       {
@@ -382,8 +445,7 @@ namespace RhinoInside.Revit.GH.Components
 
             if (strict)
             {
-              var outline = new DB.Outline(x.ToXYZ(), x.ToXYZ());
-              return new DB.BoundingBoxIsInsideFilter(outline, tolerance / Revit.ModelUnits, inverted);
+              return new DB.BoundingBoxIsInsideFilter(pointsBBox.ToOutline(), tolerance / Revit.ModelUnits, inverted);
             }
             else
             {
@@ -545,7 +607,7 @@ namespace RhinoInside.Revit.GH.Components
     protected override string IconTag => "D";
 
     public ElementDesignOptionFilter()
-    : base("DesignOption Filter", "ByDesignOption", "Filter used to match elements associated to the given Design Option", "Revit", "Filter")
+    : base("Design Option Filter", "ByDesignOption", "Filter used to match elements associated to the given Design Option", "Revit", "Filter")
     { }
 
     protected override void RegisterInputParams(GH_InputParamManager manager)
@@ -640,36 +702,6 @@ namespace RhinoInside.Revit.GH.Components
   #endregion
 
   #region Quinary
-  public class ElementParameterFilter : ElementFilterComponent
-  {
-    public override Guid ComponentGuid => new Guid("E6A1F501-BDA4-4B78-8828-084B5EDA926F");
-    public override GH_Exposure Exposure => GH_Exposure.quinary;
-    protected override string IconTag => "#";
-
-    public ElementParameterFilter()
-    : base("Parameter Filter", "ParaFilter", "Filter used to match elements by the value of a parameter", "Revit", "Filter")
-    { }
-
-    protected override void RegisterInputParams(GH_InputParamManager manager)
-    {
-      manager.AddParameter(new Parameters.FilterRule(), "Rules", "R", "Rules to check", GH_ParamAccess.list);
-      base.RegisterInputParams(manager);
-    }
-
-    protected override void TrySolveInstance(IGH_DataAccess DA)
-    {
-      var rules = new List<DB.FilterRule>();
-      if (!DA.GetDataList("Rules", rules))
-        return;
-
-      var inverted = false;
-      if (!DA.GetData("Inverted", ref inverted))
-        return;
-
-      DA.SetData("Filter", new DB.ElementParameterFilter(rules, inverted));
-    }
-  }
-
   public abstract class ElementFilterRule : Component
   {
     public override GH_Exposure Exposure => GH_Exposure.quinary;

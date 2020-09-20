@@ -3,15 +3,15 @@ using System;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
-using Autodesk.Revit.DB;
-using Autodesk.Revit.DB.DirectContext3D;
-using Autodesk.Revit.DB.ExternalService;
+using DB = Autodesk.Revit.DB;
+using DBES = Autodesk.Revit.DB.ExternalService;
+using DB3D = Autodesk.Revit.DB.DirectContext3D;
 using RhinoInside.Revit.Convert.Geometry;
 
 using Grasshopper;
 using Grasshopper.Kernel;
-using System.Threading;
 using Grasshopper.GUI.Canvas;
 
 namespace RhinoInside.Revit.GH
@@ -25,6 +25,40 @@ namespace RhinoInside.Revit.GH
     int RebuildPrimitives = 1;
 
     public static GH_PreviewMode PreviewMode = GH_PreviewMode.Shaded;
+
+    static Rhino.Geometry.MeshingParameters previewCurrentMeshParameters = new Rhino.Geometry.MeshingParameters(0.15, Revit.ShortCurveTolerance);
+    static Rhino.Geometry.MeshingParameters PreviewCurrentMeshParameters
+    {
+      get
+      {
+        previewCurrentMeshParameters.RelativeTolerance = 0.15;
+        previewCurrentMeshParameters.MinimumEdgeLength = Revit.ShortCurveTolerance * Revit.ModelUnits;
+
+        if (ActiveDefinition?.PreviewCurrentMeshParameters() is Rhino.Geometry.MeshingParameters parameters)
+        {
+          previewCurrentMeshParameters.MinimumTolerance = parameters.MinimumTolerance;
+          previewCurrentMeshParameters.RelativeTolerance = parameters.RelativeTolerance;
+          previewCurrentMeshParameters.MinimumEdgeLength = Math.Max(Revit.ShortCurveTolerance * Revit.ModelUnits, parameters.MinimumEdgeLength);
+          previewCurrentMeshParameters.Tolerance = parameters.Tolerance;
+          previewCurrentMeshParameters.GridAmplification = parameters.GridAmplification;
+          previewCurrentMeshParameters.GridAspectRatio = parameters.GridAspectRatio;
+          previewCurrentMeshParameters.GridAngle = parameters.GridAngle;
+          previewCurrentMeshParameters.GridMinCount = parameters.GridMinCount;
+          previewCurrentMeshParameters.JaggedSeams = parameters.JaggedSeams;
+          previewCurrentMeshParameters.SimplePlanes = parameters.SimplePlanes;
+          previewCurrentMeshParameters.RefineGrid = parameters.RefineGrid;
+          previewCurrentMeshParameters.MaximumEdgeLength = parameters.MaximumEdgeLength;
+          previewCurrentMeshParameters.RefineAngle = parameters.RefineAngle;
+          previewCurrentMeshParameters.TextureRange = parameters.TextureRange;
+        }
+
+        previewCurrentMeshParameters.GridMaxCount = 512;
+        previewCurrentMeshParameters.ComputeCurvature = false;
+        previewCurrentMeshParameters.SimplePlanes = true;
+        previewCurrentMeshParameters.ClosedObjectPostProcess = false;
+        return previewCurrentMeshParameters;
+      }
+    }
 
     public PreviewServer()
     {
@@ -50,10 +84,11 @@ namespace RhinoInside.Revit.GH
     #endregion
 
     #region IDirectContext3DServer
-    public override bool UseInTransparentPass(View dBView) =>
+    public override bool UseInTransparentPass(DB.View dBView) =>
       ((ActiveDefinition is null ? GH_PreviewMode.Disabled : PreviewMode) == GH_PreviewMode.Shaded);
 
-    public override bool CanExecute(View dBView) =>
+    public override bool CanExecute(DB.View dBView) =>
+      GH_Document.EnableSolutions &&
       PreviewMode != GH_PreviewMode.Disabled &&
       ActiveDefinition is object &&
       IsModelView(dBView);
@@ -63,8 +98,11 @@ namespace RhinoInside.Revit.GH
     private void SelectionChanged(object sender, EventArgs e)
     {
       var newSelection = ActiveDefinition.SelectedObjects();
-      if (lastSelection.Count != newSelection.Count || lastSelection.Except(newSelection).Any())
-        Revit.RefreshActiveView();
+      if (PreviewMode != GH_PreviewMode.Disabled && GH_Document.EnableSolutions)
+      {
+        if (lastSelection.Count != newSelection.Count || lastSelection.Except(newSelection).Any())
+          Revit.RefreshActiveView();
+      }
 
       lastSelection = newSelection;
     }
@@ -100,13 +138,16 @@ namespace RhinoInside.Revit.GH
       if (e.Kind == GH_DocumentSettings.Properties)
         RebuildPrimitives = 1;
 
-      Revit.RefreshActiveView();
+      if (PreviewMode != GH_PreviewMode.Disabled)
+        Revit.RefreshActiveView();
     }
 
     void ActiveDefinition_SolutionEnd(object sender, GH_SolutionEventArgs e)
     {
       RebuildPrimitives = 1;
-      Revit.RefreshActiveView();
+
+      if (PreviewMode != GH_PreviewMode.Disabled)
+        Revit.RefreshActiveView();
     }
 
     protected class ParamPrimitive : Primitive
@@ -122,10 +163,12 @@ namespace RhinoInside.Revit.GH
           Revit.RefreshActiveView();
       }
 
-      public override EffectInstance EffectInstance(DisplayStyle displayStyle, bool IsShadingPass)
+      public override DB3D.EffectInstance EffectInstance(DB.DisplayStyle displayStyle, bool IsShadingPass)
       {
         var ei = base.EffectInstance(displayStyle, IsShadingPass);
-        var color = docObject.Attributes.Selected ? ActiveDefinition.PreviewColourSelected : ActiveDefinition.PreviewColour;
+
+        var topAttributes = docObject.Attributes?.GetTopLevel ?? docObject.Attributes;
+        var color = topAttributes.Selected ? ActiveDefinition.PreviewColourSelected : ActiveDefinition.PreviewColour;
 
         if (IsShadingPass)
         {
@@ -133,23 +176,30 @@ namespace RhinoInside.Revit.GH
           if (!vc)
           {
             ei.SetTransparency(Math.Max(1.0 / 255.0, (255 - color.A) / 255.0));
-            ei.SetEmissiveColor(new Color(color.R, color.G, color.B));
+            ei.SetEmissiveColor(new DB.Color(color.R, color.G, color.B));
           }
         }
-        else ei.SetColor(new Color(color.R, color.G, color.B));
+        else ei.SetColor(new DB.Color(color.R, color.G, color.B));
 
         return ei;
       }
 
-      public override void Draw(DisplayStyle displayStyle)
+      public override void Draw(DB.DisplayStyle displayStyle)
       {
         if (docObject is IGH_PreviewObject preview)
         {
-          if (preview.Hidden)
+          if (preview.Hidden || !preview.IsPreviewCapable)
             return;
         }
 
-        if (ActiveDefinition.PreviewFilter == GH_PreviewFilter.Selected && !docObject.Attributes.Selected)
+        var topObject = docObject.Attributes?.GetTopLevel?.DocObject ?? docObject;
+        if (topObject is IGH_PreviewObject topPreview)
+        {
+          if (topPreview.Hidden || !topPreview.IsPreviewCapable)
+            return;
+        }
+
+        if (ActiveDefinition.PreviewFilter == GH_PreviewFilter.Selected && !topObject.Attributes.Selected)
           return;
 
         base.Draw(displayStyle);
@@ -189,7 +239,7 @@ namespace RhinoInside.Revit.GH
               break;
               case Rhino.Geometry.Brep brep:
               {
-                if (Rhino.Geometry.Mesh.CreateFromBrep(brep, ActiveDefinition.PreviewCurrentMeshParameters()) is Rhino.Geometry.Mesh[] brepMeshes)
+                if (Rhino.Geometry.Mesh.CreateFromBrep(brep, PreviewCurrentMeshParameters) is Rhino.Geometry.Mesh[] brepMeshes)
                 {
                   var previewMesh = new Rhino.Geometry.Mesh();
                   previewMesh.Append(brepMeshes);
@@ -204,7 +254,7 @@ namespace RhinoInside.Revit.GH
       }
     }
 
-    Rhino.Geometry.BoundingBox BuildScene(View dBView)
+    Rhino.Geometry.BoundingBox BuildScene(DB.View dBView)
     {
       if (Interlocked.Exchange(ref RebuildPrimitives, 0) != 0)
       {
@@ -235,11 +285,14 @@ namespace RhinoInside.Revit.GH
               if (obj is IGH_Component component)
               {
                 foreach (var param in component.Params.Output)
-                  DrawData(param.VolatileData, obj);
+                {
+                  if(param is IGH_PreviewObject preview)
+                    DrawData(param.VolatileData, param);
+                }
               }
               else if (obj is IGH_Param param)
               {
-                DrawData(param.VolatileData, obj);
+                DrawData(param.VolatileData, param);
               }
             }
           }
@@ -249,25 +302,21 @@ namespace RhinoInside.Revit.GH
       return primitivesBoundingBox;
     }
 
-    public override Outline GetBoundingBox(View dBView)
-    {
-      var bbox = primitivesBoundingBox;
-      return new Outline(bbox.Min.ToXYZ(), bbox.Max.ToXYZ());
-    }
+    public override DB.Outline GetBoundingBox(DB.View dBView) => primitivesBoundingBox.ToOutline();
 
-    public override void RenderScene(View dBView, DisplayStyle displayStyle)
+    public override void RenderScene(DB.View dBView, DB.DisplayStyle displayStyle)
     {
       try
       {
         BuildScene(dBView);
 
-        DrawContext.SetWorldTransform(Transform.Identity.ScaleBasis(UnitConverter.ToHostUnits));
+        DB3D.DrawContext.SetWorldTransform(DB.Transform.Identity.ScaleBasis(UnitConverter.ToHostUnits));
 
         var CropBox = dBView.CropBox.ToBoundingBox();
 
         foreach (var primitive in primitives)
         {
-          if (DrawContext.IsInterrupted())
+          if (DB3D.DrawContext.IsInterrupted())
             break;
 
           if (dBView.CropBoxActive && !Rhino.Geometry.BoundingBox.Intersection(CropBox, primitive.ClippingBox).IsValid)

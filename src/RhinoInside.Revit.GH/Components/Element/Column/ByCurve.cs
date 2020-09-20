@@ -8,7 +8,7 @@ namespace RhinoInside.Revit.GH.Components
   public class ColumnByCurve : ReconstructElementComponent
   {
     public override Guid ComponentGuid => new Guid("47B560AC-1E1D-4576-9F17-BCCF612974D8");
-    public override GH_Exposure Exposure => GH_Exposure.primary;
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
 
     public ColumnByCurve() : base
     (
@@ -20,7 +20,7 @@ namespace RhinoInside.Revit.GH.Components
 
     protected override void RegisterOutputParams(GH_OutputParamManager manager)
     {
-      manager.AddParameter(new Parameters.GraphicalElement(), "Column", "C", "New Column", GH_ParamAccess.item);
+      manager.AddParameter(new Parameters.FamilyInstance(), "Column", "C", "New Column", GH_ParamAccess.item);
     }
 
     void ReconstructColumnByCurve

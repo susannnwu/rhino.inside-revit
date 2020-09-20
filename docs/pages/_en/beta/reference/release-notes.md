@@ -1,6 +1,7 @@
 ---
 title: Release Notes
 order: 40
+group: Deployment & Configs
 ---
 
 {% capture breaking_changes_notes %}
@@ -9,6 +10,182 @@ Some of the changes mentioned in sections below, might break your existing Grass
 {% include ltr/warning_note.html note=breaking_changes_notes %}
 
 <!-- most recent release should be on top -->
+{% include ltr/release-header.html version="0.0.7557.24227" time="09/019/2020 13:27:34" %}
+
+## New Features
+* Added 'Add SubCategory' component.
+* Added 'Add Railing' component.
+
+## Fixes
+* Fixed 'Document Links' component to make it work with BIM 360 linked files.
+* Improved `DB.HemiteSurface` conversion to `NurbsSurface`.
+
+{% include ltr/release-header.html version="0.0.7536.22136" time="08/19/2020 12:17:52" %}
+
+### New Features
+* Added new icons for 'Element Name', 'Element Category' and 'Element Type' components.
+* Added support for .ghlink files.
+* Enabled 'Add Topography (Mesh)' in Revit 2019.2.
+
+### Fixes
+* Fixed a bug when no `MeshingParameters` is available for Grasshopper previews.
+* Fixed a bug when user selects 'Disable Meshing' in Grasshopper UI for previews.
+* Improved `DB.Elements` meshing for previews. Now uses Grasshopper meshing preview settings and do not compute nGons on those meshes.
+* Fixed bug into `RawDecoder.AddSurface` when surface is a `SumSurface`
+* Fixed bug into `RawDecoder.AddSurface` when `DB.Surface.OrientationMatchesParametricOrientation` is `false`.
+* Now `RhinoInside.Revit.Convert.Geometry.BrepEncoder.EncodeRaw` splits kinky faces before transferring geometry.
+* Improved `RhinoInside.Revit.Convert.Geometry.NurbsSplineEncoder.ToDoubleArray` precision.
+* Now `RhinoInside.Revit.Convert.Geometry.BrepEncoder.EncodeRaw` normalizes brep faces to increase chances of Revit API detects pipe like surfaces as a `DB.CylindricalSurface`.
+* Now `RhinoInside.Revit.Convert.Geometry.Raw.ToHost` from `BrepFace` is a bit more robust to code changes.
+* Fixed a bug in `RhinoInside.Revit.Geometry.Extensions.TryGetExtrusion` from `Brep` when there are faces that are "near" planar.
+* Fixed a bug in 'Query Graphical Elements'. It was not collecting `DB.Element` without category.
+
+### Minor Changes
+* Now component 'Element Preview' extracts meshes using 0.5 as 'Quality' when no value is provided.
+
+### API
+* Moved `OwnerView` property from `IGH_InstanceElement` to `IGH_GraphicalElement`
+* Now `RawDecoder.ToRhinoSurface` from `DB.RuledFace` uses `DB.ExportUtils.GetNurbsSurfaceDataForFace`to extract the surface NURBS form.
+
+{% include ltr/release-header.html version="0.0.7524.21907" time="08/07/2020 12:10:14" %}
+
+### New Features
+* Now `DB.Part` is considered a Graphical Element.
+
+### Fixes
+* Added some null checking to 'Query Graphical Elements'
+* Fixed `RawDecoder.FromRuledSurface`. Resulting surface should be transposed.
+* Added `RawDecoder.FromExtrudedSurface` to handle cases where `DB.RuledFace` is an extrusion.
+* Fixed #312: Search Families by using *Asterisk*
+* Fixed a bug in 'Element Geometry' and 'Graphical Element Geometry' managing trees.
+* Fixed 'Element Parts Geometry' when element parts where already created in the document.
+
+### Minor Changes
+* Renamed MaterialQuanities.cs to MaterialQuantities.cs.
+* Renamed ElementMaterialQuanities to ElementMaterialQuantities
+* Moved 'Geometric Element' components as secondary.
+* Renamed 'Element Compound Structure Geometry' to 'Element Parts Geometry'.
+* Moved back 'Compound Structure Layer' components under the 'Host' Panel.
+
+{% include ltr/release-header.html version="0.0.7517.32978" time="07/31/2020 18:19:16" %}
+
+### New Features
+* Grouped all transactions opened in a Grasshopper solution as one UNDO operation in Revit.
+
+### Fixes
+* Fixed a bug on NurbsCurve conversion to DB.NurbsSpline when original curve is not C1.
+* Fixed a bug in Types.GraphicalElement.ClippingBox when DB.Element is not available.
+* Fixed a bug in 'Add Beam', now default Cross-Section Rotation is 0.0
+
+## Minor Changes
+* Disabled Grasshopper previews when Solver is locked.
+* Now Grasshopper ignores disabled params or components when occurs a change in Revit document in order to expire the solution.
+
+### API
+* Added ApplicationServices.Application.GetOpenDocuments extension method.
+
+{% include ltr/release-header.html version="0.0.7513.21931" time="07/27/2020 12:11:02" %}
+
+### New Features
+* Updated Installer bitmaps.
+* Added 'Filter Element' component.
+* Added 'Query Graphical Elements' component.
+* Added 'Element Name', 'Element Category' and 'Element Type' components.
+
+### Minor Changes
+* Renamed 'Exclude ElementType' Filter component to 'Exclude Types'.
+* Renamed 'Document Levels Picker' to 'Levels Picker'.
+* Renamed 'All documents' to 'Open Documents'
+
+### Fixes
+* Fixed a bug in ActivationGate that provokes Grassopper window not to activate once is deactivated.
+* Fixed Parameters UI when have no connected inputs.
+* Fixed RhinoInside.Revit.GH.Types.Panel.IsValidElement to recognize DB.Panel as a Types.Panel.
+* Fixed 'Document Links' component. Now it works even when there is no instance to the link placed in the model.
+
+### API
+* Added Extension method DB.Document.HasModelPath to check if a DB.Document has the specified path.
+
+{% include ltr/release-header.html version="0.0.7500.18692" time="07/14/2020 10:23:04" %}
+
+### New Features
+* Now 'Bounding Box' Grasshopper component works with Revit elements.
+* Added support for more `DB.FamilyPlacementType` to the 'Add Component (Location)' component.
+
+### Minor Changes
+* Add more info to the report file about where 'opennurbs.dll' is loaded from.
+
+### Fixes
+* Resolved units conversion issues in 'Analyse Wall' component (#263).
+* Fixed 'Element Geometry' component when managing family geometry. 
+
+### API
+* Added `DB.Document.GetActiveGraphicalView` extension method.
+
+{% include ltr/release-header.html version="0.0.7481.2160" time="06/25/2020 01:12:00" %}
+
+### New Features
+* Added new input parameter to Element.Geometry component to extract geometry ignoring other elements.
+Is useful to extract a wall shape without the Inserts or without extending it to a roof it is extended.
+* Added conversion from string to Enum and standardized concept of Invalid or Unset as `<empty>`.
+* Added 'Element Purge' component
+* Added a button in Revit Ribbon to Enable and Disable Grasshopper solver.
+* Added geometry preview to Mullions
+* Added 'Graphical Element Geometry' to extract View dependent geometry and geometry category.
+* Added 'Reset Element Parameters'
+* Removed the samples panel.
+* Added Command Import to Revit Ribbon.
+* Added Host Boundary Profile component.
+* Added 'Element Host' component.
+* Added 'Family Identity' component.
+* Added support for more ParameterType units conversions.
+* Added 'Graphical Element Location' component.
+* Implemented previews for Grids and Levels
+* Added CurveElement type.
+* Added casting from GraphicalElement to GH_Line
+
+### Minor Changes
+* Added icon to 'RhinoInside.Revit.GH.gha' module.
+* Renamed some component names and parameters to follow Revit terminology
+* Now 'Element Dependents' skips the input element on the output.
+* Updated 'View Identity' and 'Query Views' to use DB.ViewFamily enum.
+* Grasshopper preview server filters out those component params that do not implement IGH_PreviewObject interface.
+* Param Enum now shows the same icon as 'Generic Data' in Grasshopper.
+* Removed Locked and Lockable feature from Panels and Mullions because is incomplete.
+
+### Fixes
+* Fixed DocumentChangedEvent to trigger New Grasshopper solutions when Revit model changes.
+* Disable Grasshopper previews when the solver is disabled.
+* Added message to report 'opennurbs.dll' is already loaded instead of failing.
+* Now expired Rhino.Inside Revit should warn the user instead of simply gray out the button in the Add-Ins tab.
+* Check before load the Addin is compiled for correct version of Revit is being loaded.
+* Improves the Grasshopper preview in Revit of dense curves.
+* Fixed a bug related to units in ToGeometryObjectMany from Brep when it fails and generates a Mesh.
+* Fixed a bug in BrepEncoder.ToBRepBuilderEdgeGeometry when the edge domain is the full curve.
+* Fixes #139: AddFamilyInstance.ByLocation component does not apply transform on hosted instances
+* Fixed a units problem on conversion from Face to Brep or Surface.
+* Fixed a bug in 'Add Form' component converting units when converting a Brep to a extrusion DB.Form.
+* Fixed RawDecoder.ToRhino from DB.Line when the input line is not bounded.
+
+### API
+* Added ToPoint2d, ToVector2d and ToUV for converting Autodesk.Revit.DB.UV objects.
+* Renamed ToHost and ToRhino by AsPoint3d, AsPoint2d, AsVector3d and AsVector2d for XYZ and UV, to have conversion to Point and Vector.
+* Fixed ToEllipse with factor
+* Now OpenAwaiter result returns the previous ActivationGate status (open or closed).
+* Added IsElementTypeId extension method to DB.ElementId
+* Added GetPurgableElementTypes extension method to DB.Document
+* Added DB.Element.IsSameElement extension method and fixed DB.Element.CopyParametersFrom.
+* Added System.Type.IsGenericSubclassOf extension method.
+* Added support for NameAttribute and DefaultValueAttribute to ReflectedComponent.
+* Added DB.Document.Release extension method to close a document in case is not open on UI.
+* Added extension methods to convert DB.Rectangle into System.Drawing.Rectangle
+* Added TryGetOpenUIDocument & TryGetOpenUIView extension methods.
+* Added some extension methods to convert DB.Outline and DB.BoundingBoxXYZ
+* Added extension methods to DB.View for extracting the View Rectangle in pixels.
+* Added extension methods to DB.XYZ to check for perpendicularity and codirectionality.
+* Added AreEquivalentReferences extension method do Autodesk.Revit.DB.Document.
+* Added extension methods to DB.Element to access Dependent Elements.
+
 
 {% include ltr/release-header.html version="0.0.7429.17299" time="5/4/2020 9:36:38 AM" %}
 

@@ -10,7 +10,7 @@ namespace RhinoInside.Revit.GH.Components
   public class FloorByOutline : ReconstructElementComponent
   {
     public override Guid ComponentGuid => new Guid("DC8DAF4F-CC93-43E2-A871-3A01A920A722");
-    public override GH_Exposure Exposure => GH_Exposure.primary;
+    public override GH_Exposure Exposure => GH_Exposure.secondary;
 
     public FloorByOutline() : base
     (
@@ -22,7 +22,7 @@ namespace RhinoInside.Revit.GH.Components
 
     protected override void RegisterOutputParams(GH_OutputParamManager manager)
     {
-      manager.AddParameter(new Parameters.HostObject(), "Floor", "F", "New Floor", GH_ParamAccess.item);
+      manager.AddParameter(new Parameters.Floor(), "Floor", "F", "New Floor", GH_ParamAccess.item);
     }
 
     void ReconstructFloorByOutline

@@ -10,7 +10,7 @@ using DB = Autodesk.Revit.DB;
 
 namespace RhinoInside.Revit.GH.Components
 {
-#if REVIT_2020
+#if REVIT_2019
   public class TopographyByMesh : ReconstructElementComponent
   {
     public override Guid ComponentGuid => new Guid("E6EA0A85-E118-4BFD-B01E-86BA22155938");
@@ -38,7 +38,10 @@ namespace RhinoInside.Revit.GH.Components
       [Optional] IList<Curve> regions
     )
     {
-      mesh = MeshEncoder.ToRawMesh(mesh);
+      mesh = mesh.DuplicateMesh();
+      mesh.Scale(UnitConverter.ToHostUnits);
+      while (mesh.CollapseFacesByEdgeLength(false, Revit.VertexTolerance) > 0) ;
+      mesh.Vertices.CombineIdentical(true, true);
       mesh.Vertices.CullUnused();
 
       var xyz = mesh.Vertices.ConvertAll(x => new DB.XYZ(x.X, x.Y, x.Z));
